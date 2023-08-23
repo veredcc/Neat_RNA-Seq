@@ -1,0 +1,1765 @@
+---
+title: "Analysis of RNA-Seq data using DESeq2 and additional packages"
+author: "Vered Chalifa-Caspi"
+date: "14.4.2020"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+	keep_md: true
+
+---
+Vered: To open a saved R session use: load("something.R")
+
+# Load libraries
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(tidyverse)
+library(magrittr) 
+library(RColorBrewer)
+library(pheatmap)
+library(gridExtra)
+library(openxlsx) #
+library(plotly) #
+library(colorspace) #
+library(ggrepel) #
+library(htmlwidgets) #
+library(factoextra)  #
+library(cowplot) #
+library(ggplot2) #
+
+library(DESeq2)
+library(tximport)
+library(BiocParallel)
+library(clusterProfiler)
+library(KEGGREST)
+library(sva)
+library(scater)
+library(enrichplot)
+
+source ("30.Functions_for_DESeq2_analysis.R")
+
+```
+
+# About
+
+The script is a modification and extension by Vered Chalifa-Caspi of an original script written by Menachem Sklarz (menachem.sklarz@gmail.com)
+Some of the code was adopted from the DeSeq2 module (https://github.com/bioinfo-core-BGU/neatseq-flow-modules/tree/master/neatseq_flow_modules/Liron/DeSeq2_module) by Liron Levin (levinl@bgu.ac.il)
+
+Before execution of the code, make sure to update the "Global_paramters.Rmd" file to fit your current project.
+
+The code is meant to run chunk by chunk, using only chunks that are relevant to the current analysis.
+
+# Out files
+
+```{r outfiles}
+
+# create results directory if it does not exist
+results_dir <- sprintf("%s/Results_%s",getwd(),analysis_name)
+if(!dir.exists(results_dir)) dir.create(results_dir)
+
+# create binary patterns directory (within results_dir) if does not exist
+binary_patterns_dir <- sprintf("%s/Binary_patterns",results_dir)
+if(!dir.exists(binary_patterns_dir)) dir.create(binary_patterns_dir)
+
+# create enrichment results directory (within results_dir) if does not exist
+enrichment_results_dir <- sprintf("%s/Enrichment_results",results_dir)
+if(!dir.exists(enrichment_results_dir)) dir.create(enrichment_results_dir)
+#and subdirectories
+for (term_db in c('GO_BP', 'GO_MF', 'GO_CC', 'KEGG')) {
+  term_dir = sprintf("%s/%s",enrichment_results_dir, term_db)
+  if(!dir.exists(term_dir)) dir.create(term_dir)
+  term_dir2 = paste0(term_dir, "/Shared_genes_among_pathways")
+  if(!dir.exists(term_dir2)) dir.create(term_dir2)
+}
+
+# use relative path to results dir (good enough if working on Windows)
+results_dir = sprintf("Results_%s",analysis_name)
+binary_patterns_dir    <- sprintf("%s/Binary_patterns",   results_dir)
+enrichment_results_dir <- sprintf("%s/Enrichment_results",results_dir)
+
+norm_log_counts_file        = sprintf("%s/%s_%s.txt",results_dir,NORM_METHOD, analysis_name)
+batch_corr_file             = sprintf("%s/Batch_corr_%s_%s_%s.txt",results_dir,BATCH_CORR_METHOD, NORM_METHOD, analysis_name)
+
+DE_genes_stats_file         = sprintf("%s/summary_DE_stats_%s.txt",results_dir,analysis_name)
+
+corr_to_patterns_file       = sprintf("%s/corr_results_%s.txt",binary_patterns_dir,analysis_name)
+
+corr_to_patterns_stats_file = sprintf("%s/corr_stats_%s.txt"  ,binary_patterns_dir,analysis_name)
+
+results_all_with_DE = FALSE   #print results in one file with separate tabs for all genes and DE genes, or print results in two files
+
+current_date = format(Sys.Date(), "%d.%m.%y")
+
+#analyst_name = "Vered_Caspi"
+#final_results_file          = sprintf("%s/RESULTS_%s_%s_%s.xlsx", results_dir,analysis_name, analyst_name, current_date)
+#final_results_ALL_file      = sprintf("%s/RESULTS_ALL_%s_%s_%s.xlsx", results_dir,analysis_name, analyst_name, current_date)
+#final_results_DE_file       = sprintf("%s/RESULTS_DE_%s_%s_%s.xlsx", results_dir,analysis_name, analyst_name, current_date)
+
+final_results_file          = sprintf("%s/RESULTS_%s_%s.xlsx", results_dir,analysis_name, current_date)
+final_results_ALL_file      = sprintf("%s/RESULTS_ALL_%s_%s.xlsx", results_dir,analysis_name, current_date)
+final_results_DE_file       = sprintf("%s/RESULTS_DE_%s_%s.xlsx", results_dir,analysis_name, current_date)
+final_results_Interaction_file = sprintf("%s/RESULTS_INTERACT_%s_%s.xlsx", results_dir,analysis_name, current_date)
+final_results_Combined_file = sprintf("%s/RESULTS_COMBINED_%s_%s.xlsx", results_dir,analysis_name, current_date)
+
+```
+# External Annotation 
+(from external file, e.g. from Ensmbl)
+
+```{r process external annot}
+annot = process_annotation_data (annotation_file, ANNOT_SOURCE)
+```
+
+# Trinotate
+
+```{r trinotate}
+trinotate_main = process_trinotate_data (trinotate_file)
+```
+
+# Import RSEM results
+
+```{r tximport}
+txi.rsem = import_rsem (rsem_files_locations, CHOP_GENE_ID_BY_DELIMITER, GENE_ID_DELIMITER)
+
+```
+
+# Prepare column data
+
+```{r arrange_coldata}
+col_data = prepare_col_data (experiment_design_file)
+col_data
+
+```
+
+# Optional: create sample subset
+
+```{r filter_coldata}
+
+#remove outlier samples from col_data:
+
+outlier_samples = c("X12.Eye_Immat", "X21.Eye_Female")
+
+col_data = remove_samples_from_coldata(col_data, outlier_samples)
+
+#filter col_data to include only a specific tissue
+
+col_attribute = "Body_part"
+tissue = "Eye"
+
+col_data = filter_coldata_by_tissue (col_data, col_attribute, tissue)
+
+```
+
+#subset and reorder txi.rsem according to col_data, then check that they match
+
+```{r subset_and_reorder}
+
+txi.rsem = match_txi_rsem_to_coldata (txi.rsem, col_data)
+
+```
+
+# Run DESeq2
+
+```{r sex_by_tissue}
+
+#Vered added on 24.9.2020 due to error " Error in DESeqDataSetFromTximport(txi = txi.rsem, colData = col_data,  : all(lengths > 0) is not TRUE
+#(see https://support.bioconductor.org/p/92763/)
+txi.rsem$length[txi.rsem$length < 1] <- 1   
+
+cat ("Running DESeq 2 - regular\n")
+
+dds = run_deseq2 (txi.rsem, col_data, DESIGN, use_expanded_model) #use_expanded_model can be true or false. see top of script
+
+if (CALC_INTERACTION) {
+  cat ("Running DESeq2 for interaction\n")
+  dds_interaction = run_deseq2_interaction (txi.rsem, col_data, DESIGN_INTERACTION, LRT, use_expanded_model)  #use LRT (for interaction)
+}
+
+```
+
+# Norm counts
+
+```{r save_norm_counts}
+
+norm_counts <- counts(dds,normalized=TRUE)
+
+if (NORM_METHOD == 'VSD') {
+  vsd <- varianceStabilizingTransformation(dds,blind=TRUE)
+  norm_log_counts = assay(vsd)
+} else if (NORM_METHOD == 'RLOG') {
+  rlog_counts <- rlog(dds, blind=TRUE)
+  norm_log_counts = assay(rlog_counts)
+}
+
+export_table (norm_log_counts, norm_log_counts_file)
+
+```
+# Batch correction (optional)
+
+```{r batch correction}
+
+if (REMOVE_BATCH_EFFECT){
+  
+  orig_norm_log_counts = norm_log_counts  #just to save also the norm counts before batch correction
+
+  if (BATCH_CORR_METHOD =="sva"){
+    if (length(BATCH_EFFECTS)>1){
+      print ("It is Not possible to use more than one batch effect using the sva package, will use only the first one!!")
+    }
+    DESIGN_list = unlist(stringi::stri_split( stringi::stri_replace(str = DESIGN,
+                                                                    regex =' |~',
+                                                                    mode = 'all',
+                                                                    replacement = ''),
+                                              fixed = '+'))
+    New_DESIGN =paste0('~',paste(DESIGN_list[DESIGN_list!=BATCH_EFFECTS[1]],collapse ='+'))
+    
+    
+    
+    modcombat = model.matrix( as.formula(New_DESIGN) , data=col_data)
+    combat_edata = ComBat(dat = norm_log_counts,
+                             batch = col_data[,BATCH_EFFECTS[1]],
+                             mod = modcombat,
+                             par.prior = T,
+                             mean.only=F)
+
+    norm_log_counts = combat_edata
+ 
+  }else if (BATCH_CORR_METHOD == 'limma') {
+    
+    if (length(BATCH_EFFECTS)>1){
+      limma_edata = limma::removeBatchEffect(norm_log_counts,
+                                                 batch = col_data[,BATCH_EFFECTS[1]],
+                                                 batch2= col_data[,BATCH_EFFECTS[2]])
+    }else{
+      limma_edata = limma::removeBatchEffect(norm_log_counts,
+                                                 batch = col_data[,BATCH_EFFECTS[1]])
+      norm_log_counts = limma_edata
+    }
+  }
+  
+  export_table (norm_log_counts, batch_corr_file)
+}
+
+```
+
+# Draw sample dist heatmap
+
+```{r sample_dist_heatmap}
+
+draw_sample_correlation_matrix (norm_log_counts, results_dir)
+
+```
+
+# Draw PCA 
+
+```{r sample_dist_heatmap}
+norm_log_counts_pca  = draw_pca (norm_log_counts, results_dir, 1, 2, shape=EFFECTS[1], color=EFFECTS[2])  #draw PCA 1, 2
+norm_log_counts_pca1 = draw_pca (norm_log_counts, results_dir, 1, 3, shape=EFFECTS[1], color=EFFECTS[2])  #draw PCA 1, 3
+
+pca_3d_file = paste("PCA_3D_", analysis_name, ".html", sep="")
+draw_pca_3d (norm_log_counts_pca, pca_3d_file, shape=EFFECTS[1], color=EFFECTS[2]) #draw 3D PCA
+ 
+```
+
+# Compute contrasts
+
+```{r results_df_stats}
+
+contrasts_data = NA				   
+if (CALC_CONTRASTS) {
+  
+  #read required contrasts from file
+  contrasts_data = read.delim(contrasts_file,
+                              header           = T,
+                              stringsAsFactors = F)
+  
+  stats_df = compute_contrasts (dds, contrasts_data)
+}
+
+```
+
+# Compute interaction
+
+```{r results_df_stats}
+
+if (CALC_INTERACTION) {
+  stats_df_interaction = compute_interaction (dds_interaction)
+}
+
+```
+
+# combine stats df of contrasts and interaction and add "pass_any_or_interaction"
+
+```{r results_df_stats}
+
+if (CALC_CONTRASTS && CALC_INTERACTION) {
+  stats_df_combined = combine_stat_dfs(stats_df, stats_df_interaction)
+
+}
+
+```
+
+# Summary statistics on passed genes
+
+```{r pass_stats}
+
+if (CALC_CONTRASTS) {
+  DE_genes_stats = de_summary_stats (stats_df, DE_genes_stats_file)
+  DE_genes_stats
+  #cat ("\n")
+}
+
+if (CALC_INTERACTION) {
+  cat ("No. of genes with significant interaction: ", sum(stats_df_interaction$pass.interaction=="interaction"))
+  cat ("\n")
+}
+if (CALC_CONTRASTS && CALC_INTERACTION) {
+  cat ("No. of DE genes in any contrast or with significant interaction: ", sum(stats_df_combined$pass_combined=="1"))
+  cat ("\n")
+}
+
+```
+# Create lists of DE genes
+
+``` {r DE_genes_lists}
+
+gene_lists = list()  #this list will contain all types of gene lists, from contrasts, from clustering etc.
+gene_lists$contrasts = get_DE_genes_list_per_contrast (contrasts_data, stats_df)
+```
+
+# Draw MA and volcano plots
+
+```{r MA_plots}
+
+if (CALC_CONTRASTS) {
+  draw_ma_and_volcano_plots (dds, contrasts_data, results_dir)
+}
+
+#this function works (for volcano), but the PDF file it creates is too big and makes problems after opening it.
+#draw_ma_and_volcano_plots_pdf (dds, contrasts_file, results_dir)
+
+```
+
+# Filter genes
+
+```{r filter_genes}
+
+#get all DE genes
+
+if (CALC_CONTRASTS) {
+  DE_genes = get_DE_genes_list (stats_df)
+} 
+if (CALC_INTERACTION) {
+  DE_genes_interaction = get_DE_genes_list_interaction (stats_df_interaction)
+}
+if (CALC_CONTRASTS && CALC_INTERACTION) {
+  DE_genes_combined = unique (c(DE_genes, DE_genes_interaction))
+}
+
+#get top n DE genes based on min padj in any comparison, sorted by this padj
+#currently only implemented for DE genes from contrasts
+
+if (SHOW_TOP_GENES_IN_HEATMAP) {
+  top_DE_genes = get_top_DE_genes (stats_df, NR_TOP_GENES)
+} else {
+  top_DE_genes = DE_genes
+  if (CALC_INTERACTION) {
+    top_DE_genes_interaction = DE_genes_interaction
+  }
+  if (CALC_CONTRASTS && CALC_INTERACTION) {
+    top_DE_genes_combined = DE_genes_combined
+  }
+}
+
+```
+
+#Alternatively, get gene names from file, assuming they are in the first column
+
+```{r get_DE_genes_from_file}
+
+file_name = "gene_list_example.txt"
+gene_list = get_genes_from_file (file_name, has_header=T)
+
+```
+# Correlation to binary patterns
+
+```{r corr_to_patterns}
+
+# get replicate structure from experiment design
+
+replicates_structure = get_replicate_struct_from_coldata (col_data, GROUP)
+
+# calc pattern length from col_data
+
+pattern_length = length(levels(col_data[[GROUP]]))
+
+# get all possible patterns
+
+patterns = get_all_possible_binary_patterns (pattern_length)
+
+# filter norm_log_counts and norm_counts to only include DE genes
+
+norm_log_counts_DE         = filter_expression_matrix_by_gene_list (norm_log_counts, DE_genes)
+norm_counts_DE = filter_expression_matrix_by_gene_list (norm_counts, DE_genes)
+
+#for each pattern, calc. whether the samples in the 1s all have no. counts above a cutoff
+#the cutoff is applied on the norm counts (not norm_log_counts)
+
+count_cutoff_per_pattern_matrix = calc_pattern_1s_pass_min_counts (norm_counts_DE, patterns, replicates_structure, COUNTS_CUTOFF)
+
+#calc correlation of each gene to each pattern, and store in a matrix
+#if the list of patterns is too large, consider taking only a subset of it (e.g., pass to the function patterns[1:10]).
+
+corrs  = calc_correlations_to_expression_patterns (norm_log_counts_DE, patterns, replicates_structure)
+binary_pattern_results = calc_best_pattern_per_gene (corrs, CORR_CUTOFF, corr_to_patterns_file, corr_to_patterns_stats_file, count_cutoff_per_pattern_matrix)
+corrs2 = binary_pattern_results$corrs2
+binary_patterns_stats = binary_pattern_results$binary_patterns_stats
+
+```
+
+## Alternatively, find correlation to one given pattern
+
+```{r correlation_to_one_pattern}
+
+pattern = '00000111'  #example pattern
+
+## get genes with correlation to a certain pattern above a certain cutoff (even if it is not the best pattern)
+## by default the result is sorted by corr (desc)
+corr_gene_list = get_genes_with_corr_to_pattern (corrs, pattern, CORR_CUTOFF)
+
+## get genes with correlation to a best pattern, by default the result is sorted by corr (desc)
+best_corr_gene_list = get_genes_with_corr_to_best_pattern (corrs2, pattern)
+
+## filter gene expression matrix (norm_log_counts) to only include genes with correlation to best pattern
+norm_log_counts_corr = filter_expression_matrix_by_gene_list(norm_log_counts, best_corr_gene_list)
+
+```
+
+
+# Hierarchical clustering
+
+## Heatmap for DE genes any contrast
+
+```{r hierarchical_clustering}
+
+#plot heatmap for a list of genes (in this case, top DE genes)
+#add col names from col_data and row names from "up", "down" per contrast from stats_df
+
+#get norm_log_counts counts
+mat2plot = filter_expression_matrix_by_gene_list (norm_log_counts, top_DE_genes)
+
+#construct graph title
+nr_genes = length(top_DE_genes)
+if (SHOW_TOP_GENES_IN_HEATMAP) {
+  title = paste0("Hierarchical clustering of top DE genes (n=", nr_genes, ")")
+} else {
+  title = paste0("Hierarchical clustering of DE genes (n=", nr_genes, ")")
+}
+
+#specify output file
+file_name = paste0 (results_dir, "/", "Heatmap_DE_genes.png")
+
+#plot heatmap
+
+pheatmap_data_DE_genes = plot_expression_heatmap(mat2plot, EFFECTS, stats_df, col_data, file_name, color_range="red2blue", plot_title=title)
+
+```
+## Heatmap for DE genes combined (any contrast or interaction)
+
+```{r hierarchical_clustering}
+
+#plot heatmap for a list of genes (in this case, top combined genes, i.e. DE any contrast or significant interaction)
+#add col names from col_data and row names from "up", "down" per contrast and from interaction from stats_df_interaction
+
+#get norm_log_counts counts
+mat2plot = filter_expression_matrix_by_gene_list (norm_log_counts, top_DE_genes_combined)
+
+#construct graph title
+nr_genes = length(top_DE_genes_combined)
+if (SHOW_TOP_GENES_IN_HEATMAP) {
+  title = paste0("Hierarchical clustering of top DE & interaction genes combined (n=", nr_genes, ")")
+} else {
+  title = paste0("Hierarchical clustering of DE & interaction genes combined (n=", nr_genes, ")")
+}
+
+#specify output file
+file_name = paste0 (results_dir, "/", "Heatmap_DE_genes_combined.png")
+
+#plot heatmap
+
+pheatmap_data_combined_genes = plot_expression_heatmap(mat2plot, EFFECTS, stats_df_combined, col_data, file_name, color_range="red2blue", plot_title=title)
+
+```
+
+## Heatmap for interaction only
+
+```{r hierarchical_clustering}
+
+#plot heatmap for a list of genes (in this case, top DE genes)
+#add col names from col_data and row names from "up", "down" per contrast from stats_df
+
+#get norm_log_counts counts
+mat2plot = filter_expression_matrix_by_gene_list (norm_log_counts, top_DE_genes_interaction)
+
+#construct graph title
+nr_genes = length(top_DE_genes_interaction)
+if (SHOW_TOP_GENES_IN_HEATMAP) {
+  title = paste0("Hierarchical clustering of top genes with significant interaction (n=", nr_genes, ")")
+} else {
+  title = paste0("Hierarchical clustering of genes with significant interaction (n=", nr_genes, ")")
+}
+
+#specify output file
+file_name = paste0 (results_dir, "/", "Heatmap_interaction_genes.png")
+file_name1 = paste0 (results_dir, "/", "Heatmap_interaction_genes_wo_row_annot.png")
+
+#plot heatmap
+
+pheatmap_data_interaction_genes = plot_expression_heatmap(mat2plot, EFFECTS, stats_df_combined, col_data, file_name, color_range="red2blue", plot_title=title)
+
+pheatmap_data_interaction_genes1 = plot_expression_heatmap_wo_contrasts(mat2plot, EFFECTS, stats_df_interaction, col_data, file_name1, color_range="red2blue", plot_title=title)
+
+```
+
+## Heatmap for all binary patterns in DE genes
+
+```{r heatmaps_all_patterns}
+
+# patterns = patterns[1:10] #take subset of patterns, if list is too big
+
+for (pattern in patterns) {
+  # neglect patterns  "0000" and "1111"
+  if (pattern == paste(rep(0, pattern_length), collapse ="") || pattern == paste(rep(1, pattern_length), collapse ="")) next
+  print (pattern)
+  genes2plot_corr = get_genes_with_corr_to_best_pattern (corrs2, pattern)
+  nr_genes = length(genes2plot_corr)
+  #store in gene_lists for possible later use
+  pattern_name = paste0("_", pattern)
+  gene_lists[["binary_patterns"]][[pattern_name]] = genes2plot_corr
+  #print heatmap
+  if (nr_genes <2) next
+  mat2plot = filter_expression_matrix_by_gene_list(norm_log_counts_DE, genes2plot_corr)
+  file_name = paste0 (binary_patterns_dir, "/", "Heatmap_", pattern, ".png")  #Vered Aug2023
+  title = paste0 ("Pattern ", pattern, " (", nr_genes, " genes)")
+  plot_expression_heatmap(mat2plot, EFFECTS, stats_df, col_data, file_name, color_range="red2blue", plot_title=title)
+}
+
+```
+# Partition clustering as in DeSeq2 module
+
+## Do clustering and plot cluster profiles
+
+```{r heatmaps_DeSeq2_module}
+
+#get a list of genes (in this case, top DE genes)
+#compute hierarchical clustering followed by partition clustering using group averages
+#them draw hierarchical clustering per cluster
+#present heatmap + average expression profile per cluster
+
+#preparations
+
+#get norm_log_counts counts for DE genes
+mat2plot = filter_expression_matrix_by_gene_list (norm_log_counts, top_DE_genes)
+
+#construct graph title
+nr_genes = length(top_DE_genes)
+if (SHOW_TOP_GENES_IN_HEATMAP) {
+  title = paste0("Partitionn clustering of top DE genes (n=", nr_genes, ")")
+} else {
+  title = paste0("Partition clustering of DE genes (n=", nr_genes, ")")
+}
+
+#compute group means
+#assuming that col order in mat2plot is the same as row order in col_data
+mat2plot_means = mat2plot %>%
+                 t %>%
+                 aggregate.data.frame(by = col_data[GROUP],FUN = mean) %>%
+                 remove_rownames %>%
+                 column_to_rownames(var=GROUP) %>%
+                 as.data.frame() %>%
+                 t
+
+# Z-scoring: scale expression data by row
+mat2plot_means_scaled <- mat2plot_means %>% t %>% scale %>% t
+
+#reduce no. of digits after the dot
+#mat2plot_means_scaled = apply(mat2plot_means_scaled,    
+#                               MARGIN = c(1,2),
+#                               FUN = function(x) round(x,digits = 5))
+
+
+#clustering of all DE genes using group means
+#use group averages
+#use the gap algorithm to determine the number of clusters
+#this will run hierarchical clustering and then cut the tree to discrete clusters using the determined no. of clusters
+#it is possible to manually determine the no. of clusters using the k parameter
+#need to feed in scaled data by row, because the stand parameter in eclust scales the data by column which is bad
+
+if (!is.na(K_FIXED)) {
+  #clustering with setting no. of clusters
+  Clustering <- eclust(as.matrix(mat2plot_means_scaled),
+                       stand = F,
+                       FUNcluster= "hclust",
+                       hc_metric = "pearson",
+                       graph = F,  #should be FALSE
+                       hc_method = "ward.D2",
+                       #k.max =  k.max,
+                       k = K_FIXED
+  )
+} else {
+  gap_maxSE_method = "firstSEmax"
+  gap_maxSE_SE.factor = 1 #eclust parameter for determining the number of clusters [Not For Mclust]. higher number is less sensitive. Liron's default is 1
+  
+  Clustering <- eclust(as.matrix(mat2plot_means_scaled),
+                       stand = F,
+                       FUNcluster= "hclust",
+                       hc_metric = "pearson",
+                       graph = F,  #should be FALSE
+                       hc_method = "ward.D2",
+                       k.max =  K_MAX,
+                       nboot = 10,          #no. bootstrap. consider increasing. Liron's default is 10
+                       gap_maxSE = list(method= gap_maxSE_method, SE.factor = gap_maxSE_SE.factor)
+  )
+}
+
+Clustering$nbclust
+Clustering$size
+
+#head(Clustering$cluster)
+#head(Clustering$data)
+
+#specify output files. directory name will include no. of clusters
+clustering_title = paste0("Partition_clustering_", Clustering$nbclust, "_clusters")
+partition_clustering_dir <- sprintf("%s/%s",results_dir, clustering_title)  #Vered Aug2023
+if(!dir.exists(partition_clustering_dir)) dir.create(partition_clustering_dir)
+cluster_profiles_file1 = paste0 (partition_clustering_dir, "/", "cluster_profiles_DE_genes_smoothing.pdf")
+cluster_profiles_file2 = paste0 (partition_clustering_dir, "/", "cluster_profiles_DE_genes_error_bars.pdf")
+heatmap_file_name  = paste0 (partition_clustering_dir, "/", "Partition_Heatmap_DE_genes.png")
+
+#create "clusters": array where element names are genes and values are cluster no. not re-ordered by clustering.
+clusters=Clustering$cluster
+
+#hierarchical clustering at the group average level of each cluster separately
+#this is then concatenated to create clustering order in all the DE genes (by group averages)
+#the result is used by Liron to draw the heatmap of the averages, but I did not implement it.
+
+New_clusters=c()
+for (num in sort(unique(clusters))){
+  res_red=unique(names(clusters))
+  Genes=res_red[res_red  %in% names(clusters[clusters %in% num])]
+  if (length(Genes)>1){
+    
+    heat_map=pheatmap(mat = as.matrix(mat2plot_means[Genes,]),   #mat2plot_means_Z_score
+                      cluster_rows = T,
+                      show_rownames=F,
+                      clustering_distance_rows = "correlation" ,
+                      clustering_method="ward.D2",
+                      cluster_cols = F,
+                      silent = F,   #to display the graph, comment this line and don't assign to Heat_map, just run pheatmap
+                      scale = "row" #should be "row"
+                      )
+    
+    New_clusters=c(New_clusters,clusters[heat_map$tree_row$labels[heat_map$tree_row$order]])
+  }else{
+    New_clusters=c(New_clusters,clusters[Genes])
+  }
+}
+
+#generation and plotting of average expression profile per cluster
+
+clusters=New_clusters
+table(clusters)  #print clustering summary
+
+#plot graphs without smoothing, but with error bars
+Clustering_Plot1 = plot_cluster_profiles(clusters,mat2plot,col_data, c(GROUP1,GROUP),c(GROUP1,GROUP,"Normalized counts"), smooth=F, X_AXIS_ORDER=unique(col_data[GROUP]), out_file = cluster_profiles_file2)
+
+Clustering_Plot1
+
+#plot graphs with smoothing
+# Clustering_Plot2 = plot_cluster_profiles(clusters,mat2plot,col_data, c(GROUP1,GROUP),c(GROUP1,GROUP,"Normalized counts"), smooth=T, X_AXIS_ORDER=unique(col_data[GROUP]), out_file = cluster_profiles_file1)
+# 
+# Clustering_Plot2
+
+```
+## Heatmap for clustering results
+
+```{r heatmap of pre computed clusters}
+
+New_clusters = plot_expression_heatmap_for_precomputed_clusters (mat2plot, clusters, EFFECTS, GROUP, GROUP1, col_data, heatmap_file_name, plot_title = title)
+
+#store clustering results in gene_lists
+gene_lists[[tolower(clustering_title)]] = make_list_from_clusters(New_clusters)
+
+```
+
+# Manual clustering using cutoffs
+
+## Summary stats of current clusters (after z-scoring)
+
+```{r summary stats current clusters}
+#required objects
+
+# head(mat2plot_means_scaled)
+# head(New_clusters)   #after hierarchical clustering by DeSeq2 module method
+# head(contrasts_data)
+
+new_clusters1 = data.frame("gene"=names(New_clusters), "cluster"=New_clusters)
+
+new_df = mat2plot_means_scaled
+colnames(new_df) = c("NC", "HFD", "Reverse")
+
+new_df = 
+  new_df %>%
+  as.data.frame %>%
+  mutate ("HFD.vs.NC" = HFD - NC) %>%
+  mutate ("Reverse.vs.HFD" = Reverse - HFD)
+
+new_df = merge (new_clusters1, new_df, by.x="gene", by.y="row.names")
+row.names(new_df) = new_df$gene
+new_df = new_df[names(New_clusters),]  #sort by New_clusters order
+
+#compute summary statistics per cluster. note that FC is converted to linear
+
+agg_mean =
+  new_df %>%
+  select (-gene) %>%
+  aggregate.data.frame (by=list(Cluster=new_df$cluster), FUN=mean) %>%
+  mutate (HFD.vs.NC = ifelse(HFD.vs.NC>0,
+                                           yes = 2^HFD.vs.NC,
+                                           no = -1/(2^HFD.vs.NC))) %>%
+  mutate (Reverse.vs.HFD = ifelse(Reverse.vs.HFD>0,
+                                           yes = 2^Reverse.vs.HFD,
+                                           no = -1/(2^Reverse.vs.HFD))) 
+
+agg_min =
+  new_df %>%
+  select (-gene) %>%
+  aggregate.data.frame (by=list(Cluster=new_df$cluster), FUN=min) %>%
+  mutate (HFD.vs.NC = ifelse(HFD.vs.NC>0,
+                                           yes = 2^HFD.vs.NC,
+                                           no = -1/(2^HFD.vs.NC))) %>%
+  mutate (Reverse.vs.HFD = ifelse(Reverse.vs.HFD>0,
+                                           yes = 2^Reverse.vs.HFD,
+                                           no = -1/(2^Reverse.vs.HFD))) 
+
+agg_max =
+  new_df %>%
+  select (-gene) %>%
+  aggregate.data.frame (by=list(Cluster=new_df$cluster), FUN=max) %>%
+  mutate (HFD.vs.NC = ifelse(HFD.vs.NC>0,
+                                           yes = 2^HFD.vs.NC,
+                                           no = -1/(2^HFD.vs.NC))) %>%
+  mutate (Reverse.vs.HFD = ifelse(Reverse.vs.HFD>0,
+                                           yes = 2^Reverse.vs.HFD,
+                                           no = -1/(2^Reverse.vs.HFD)))
+
+export_table(agg_mean, paste0 (partition_clustering_dir, "/Clusters_mean.txt"))
+export_table(agg_min,  paste0 (partition_clustering_dir, "/Clusters_min.txt"))
+export_table(agg_max,  paste0 (partition_clustering_dir, "/Clusters_max.txt"))
+```
+## Generate manual clusters - option 1
+
+```{r manual clusters}
+
+#cutoffs are based on z-scores of vsd normalized data
+
+MAN_CLUST_FC_CUTOFF = 1.2 #orig was 1.5
+LOG_MAN_CLUST_FC_CUTOFF = log2(MAN_CLUST_FC_CUTOFF)
+
+cluster_def = c(1:9)
+names(cluster_def) = c("up-nc", "up-down", "up-up", "nc-up", "down-nc", "down-up", "down-down", "nc-down", "nc-nc")
+cluster_def
+
+#specify output files
+manual_clusters_dir <- sprintf("%s/Manual_clusters_DE_genes_option1_cutoff1.2",results_dir)
+if(!dir.exists(manual_clusters_dir)) dir.create(manual_clusters_dir)
+man_cluster_profiles_file1 = paste0 (manual_clusters_dir, "/", "Manual_cluster_profiles_DE_genes_smoothing.pdf")
+man_cluster_profiles_file2 = paste0 (manual_clusters_dir, "/", "Manual_cluster_profiles_DE_genes_error_bars.pdf")
+heatmap_file_name  = paste0 (manual_clusters_dir, "/", "Manual_clustering_Heatmap_DE_genes.png")
+
+new_df1 =
+  new_df %>%
+  select(-cluster) %>%
+  mutate (HFD.vs.NC_direction = ifelse(HFD.vs.NC > LOG_MAN_CLUST_FC_CUTOFF,
+                                       yes="up",
+                                       no=ifelse(HFD.vs.NC < -LOG_MAN_CLUST_FC_CUTOFF,
+                                                  yes="down",
+                                                  no="nc"))) %>%
+  mutate (Reverse.vs.HFD_direction = ifelse(Reverse.vs.HFD>LOG_MAN_CLUST_FC_CUTOFF,
+                                       yes="up",
+                                       no=ifelse(Reverse.vs.HFD < -LOG_MAN_CLUST_FC_CUTOFF,
+                                                  yes="down",
+                                                  no="nc"))) %>%
+  mutate (Pattern = paste0(HFD.vs.NC_direction, "-", Reverse.vs.HFD_direction)) %>%
+  mutate (Man_cluster = cluster_def[Pattern])
+
+man_clusters <- setNames(as.numeric(new_df1$Man_cluster), new_df1$gene)
+
+#store in gene_lists
+clustering_title = paste0("manual_clustering_", length(unique(man_clusters)), "_clusters")
+gene_lists[[clustering_title]] = make_list_from_clusters(man_clusters)
+
+clusters=man_clusters
+table(clusters)  #print clustering summary
+```
+
+## Generate manual clusters - option 2
+
+```{r manual clusters}
+
+#cutoffs are based on DESeq2 stats results (done on orig counts)
+
+MAN_CLUST_DESEQ_FC_CUTOFF = 1.3
+MAN_CLUST_DESEQ_P_CUTOFF = 0.05   #wo FDR
+
+cluster_def = c(1:9)
+names(cluster_def) = c("up-nc", "up-down", "up-up", "nc-up", "down-nc", "down-up", "down-down", "nc-down", "nc-nc")
+cluster_def
+
+#specify output files
+manual_clusters_dir <- sprintf("%s/Manual_clusters_DE_genes_option2",results_dir)
+if(!dir.exists(manual_clusters_dir)) dir.create(manual_clusters_dir)
+man_cluster_profiles_file1 = paste0 (manual_clusters_dir, "/", "Manual_cluster_profiles_DE_genes_smoothing.pdf")
+man_cluster_profiles_file2 = paste0 (manual_clusters_dir, "/", "Manual_cluster_profiles_DE_genes_error_bars.pdf")
+heatmap_file_name  = paste0 (manual_clusters_dir, "/", "Manual_clustering_Heatmap_DE_genes.png")
+
+new_df2 = 
+  stats_df %>%
+  filter (gene %in% top_DE_genes) %>%
+  select (gene, linearFC.M_HFD.vs.NC, pvalue.M_HFD.vs.NC, linearFC.M_Reverse.vs.HFD, pvalue.M_Reverse.vs.HFD) %>%
+  mutate (HFD.vs.NC_direction = ifelse(((!is.na(linearFC.M_HFD.vs.NC)) & (!is.na(pvalue.M_HFD.vs.NC)) & (pvalue.M_HFD.vs.NC < MAN_CLUST_DESEQ_P_CUTOFF)),
+          yes=ifelse(linearFC.M_HFD.vs.NC > MAN_CLUST_DESEQ_FC_CUTOFF,
+          yes="up",
+          no=ifelse(linearFC.M_HFD.vs.NC < -MAN_CLUST_DESEQ_FC_CUTOFF,
+          yes="down",
+          no="nc")),
+          no="nc")) %>%
+    mutate (Reverse.vs.HFD_direction = ifelse(((!is.na(linearFC.M_Reverse.vs.HFD)) & (!is.na(pvalue.M_Reverse.vs.HFD)) & (pvalue.M_Reverse.vs.HFD < MAN_CLUST_DESEQ_P_CUTOFF)),
+          yes=ifelse(linearFC.M_Reverse.vs.HFD > MAN_CLUST_DESEQ_FC_CUTOFF,
+          yes="up",
+          no=ifelse(linearFC.M_Reverse.vs.HFD < -MAN_CLUST_DESEQ_FC_CUTOFF,
+          yes="down",
+          no="nc")),
+          no="nc")) %>%
+  mutate (Pattern = paste0(HFD.vs.NC_direction, "-", Reverse.vs.HFD_direction)) %>%
+  mutate (Man_cluster = cluster_def[Pattern])
+
+man_clusters <- setNames(as.numeric(new_df2$Man_cluster), new_df2$gene)
+
+#store in gene_lists
+clustering_title = paste0("manual_clustering_option_2_", length(unique(man_clusters)), "_clusters")
+gene_lists[[clustering_title]] = make_list_from_clusters(man_clusters)
+
+clusters=man_clusters
+table(clusters)  #print clustering summary
+```
+
+##plot cluster profiles (manual clusters)
+
+```{r plot manual clusters}
+
+#construct graph title
+nr_genes = length(top_DE_genes)
+if (SHOW_TOP_GENES_IN_HEATMAP) {
+  title = paste0("Manual clustering of top DE genes (n=", nr_genes, ")")
+} else {
+  title = paste0("Manual clustering of DE genes (n=", nr_genes, ")")
+}
+
+#generation and plotting of average expression profile per cluster
+
+clusters=man_clusters
+
+#plot graphs without smoothing, but with error bars
+man_clustering_Plot1 = plot_cluster_profiles(clusters,mat2plot,col_data, c(GROUP1,GROUP),c(GROUP1,GROUP,"Normalized counts"), smooth=F, X_AXIS_ORDER=unique(col_data[GROUP]), out_file = man_cluster_profiles_file2)
+
+man_clustering_Plot1
+
+```
+##get average expression per cluster (for export)
+
+``` {r get average expression per cluster}
+
+#The function is not yet ready
+
+ for (num in sort(unique(clusters))){  #for each cluster
+    #get a list of the genes in this cluster
+    res_red=unique(names(clusters))
+    Genes=res_red[res_red  %in% names(clusters[clusters %in% num])]
+    
+    if (length(Genes)>1){
+      expression_matrix = mat2plot[Genes,]
+      out_file = paste0 (manual_clusters_dir, "/", "cluster_", num, "_expression.csv")
+      write.csv(expression_matrix, file=out_file)
+
+    }
+ }
+
+```
+
+##plot heatmap (manual clusters)
+
+``` {r plot man clusters heatmap}
+
+New_clusters_man = plot_expression_heatmap_for_precomputed_clusters (mat2plot, clusters, EFFECTS, GROUP, GROUP1, col_data, heatmap_file_name, plot_title = title)
+
+```
+##Unify clusters
+
+``` {r unify clusters}
+
+unified_clusters = clusters %>%
+  case_match (c(1,5) ~ "persistent",
+              c(2,6) ~ "reversed",
+              c(3,7) ~ "aggravated",
+              c(4,8) ~ "reverse_effect",
+              .default = "other"
+              )
+
+# unified_clusters = clusters %>%
+#   case_match (c(1,3,4) ~ "up",
+#               c(5,7,8) ~ "down",
+#               .default = "other"
+#               )
+
+names(unified_clusters) = names(clusters)
+
+table(unified_clusters)
+
+#store in gene_lists
+clustering_title = paste0("unified_clusters_", length(unique(unified_clusters)), "_clusters")
+gene_lists[[clustering_title]] = make_list_from_clusters(unified_clusters)
+
+clusters = unified_clusters
+
+```
+
+# Prepare results data frame
+
+```{r prepare results data frame}
+
+#initialize res_df with gene names as first column
+
+res_df = data.frame(gene=rownames(norm_counts))
+
+#add gene annotation
+#use the first column of the annotation data frame as key
+
+if (exists("annot")) {
+     res_df3 <- merge(x   = res_df,
+                    y     = annot,
+                    by.x  = "gene",
+                    by.y  = 1,
+                    all.x = TRUE)
+    dim(res_df)
+    dim(res_df3)
+    if (identical(dim(res_df)[1],dim(res_df3)[1])) {
+        res_df<-res_df3
+        rm(res_df3)
+        gc()
+    } else {
+        cat("Error!!!")
+    }
+}
+
+nr_first_cols = dim(res_df)[2]
+
+#add norm counts
+
+res_df = cbind(res_df, norm_counts)
+
+#add stats results
+
+if (CALC_CONTRASTS & CALC_INTERACTION) {
+  res_df = cbind(res_df, select(stats_df_combined, -gene))
+} else if (CALC_CONTRASTS) {
+  res_df = cbind(res_df, select(stats_df, -gene))
+} else if (CALC_INTERACTION) {
+  res_df = cbind(res_df, select(stats_df_interaction, -gene))
+}
+
+
+#add trinotate
+if (exists("trinotate_main")) {
+    res_df2 <- merge(x     = res_df,
+                    y     = trinotate_main,
+                    by.x  = "gene",
+                    by.y  = "X.gene_id",
+                    all.x = TRUE)
+    dim(res_df)
+    dim(res_df2)
+    if (identical(dim(res_df)[1],dim(res_df2)[1])) {
+        res_df<-res_df2
+        rm(res_df2)
+        gc()
+    } else {
+        cat("Error!!!")
+    }
+}
+
+#check
+(res_df$gene %>% length) == (unique(res_df$gene) %>% length)
+
+#backup res df
+res_df1=list(res_df=res_df)
+ save(res_df1,file = "res_df_backup.R")
+
+```
+
+## prepare metadata_rows, contrasts_header and grouping_header
+
+```{r prepare top rows}
+
+  ## Prepare data to write:
+  
+  metadata_cols = EFFECTS
+  metadata_rows <- length(metadata_cols)+1
+
+  # initialize contrasts header with empty titles for the expression data
+  
+  #contrasts_header = c("Transcript", rep("", nrow(col_data)))
+  contrasts_header = c(rep ("", nr_first_cols+nrow(col_data)))
+  
+  # grouping_header stores widths of data groups.
+  # initialize it with a group of 1 for gene name, and a second group with the number of samples for expression data
+  
+  grouping_header <- c(nr_first_cols, ncol(norm_counts))
+  
+  # add headers for contrasts
+  
+  res_dim2 <- 5 # Columns per contrast in res_df: linearFC, pvalue, padj, manual formula and pass
+  
+  for (i in 1:nrow(contrasts_data)) {
+    contrast_name = contrasts_data[i,'Contrast_name']
+    contrasts_header <- c(contrasts_header,
+                          contrast_name,
+                          rep(NA, res_dim2 - 1))
+    # Add width of group to grouping_header
+    grouping_header <- c(grouping_header,res_dim2)
+  }
+  
+  #add headers for pass any 
+  
+  contrasts_header <- c(contrasts_header, "")
+  grouping_header <- c(grouping_header,1)
+  
+  #add headers for interaction (if relevant)
+  
+  if (CALC_INTERACTION) {
+    #add headers and space for p-value, adj, pass
+    contrasts_header <- c(contrasts_header, "Interaction", "", "") 
+    grouping_header <- c(grouping_header,3)
+  }
+  
+  if (CALC_CONTRASTS & CALC_INTERACTION) {
+    #add header and space for pass_combined
+    contrasts_header <- c(contrasts_header, "") 
+    grouping_header <- c(grouping_header,1)
+  }
+  
+  #add headers for trinotate
+  
+  if (exists("trinotate_main")) {
+    contrasts_header <- c(contrasts_header, 
+                          rep("Trinotate",
+                              ncol(trinotate_main)-1)) 
+    grouping_header <- c(grouping_header, ncol(trinotate_main)-1) }
+  
+  # In case these have been expanded below, keeping only the part from res_df:
+  #contrasts_header <- contrasts_header[1:ncol(res_df)]
+  #grouping_header <- grouping_header[cumsum(grouping_header) <= ncol(res_df)]
+  
+  #extending headers for the DE, interaction and combined files
+  
+  contrasts_header_DE = c(contrasts_header,"")  
+  grouping_header_DE <- c(grouping_header,1)  # Including 'order' column 
+  
+  grouping_header_DE <- c(grouping_header_DE,2)  # Including cluster no. and order from DeSeq2 module clustering (27.4.2023)
+  
+  if(PERFORM_MANUAL_CLUSTERING) {
+    grouping_header_DE <- c(grouping_header_DE,2)  # Including manual cluster no. and order from DeSeq2 module clustering (27.4.2023)
+    
+  }
+  
+  contrasts_header_DE = c(contrasts_header_DE,rep("",dim(col_data)[1]))  
+  # Save widths of data groups:
+  grouping_header_DE <- c(grouping_header_DE,ncol(norm_counts))  # Including zscores
+  
+```  
+  
+## Output all genes to excel
+
+```{r output_all_genes_to_excel}
+
+res_df2write = write_all_genes_to_Excel (res_df)
+
+```
+
+## Create DE genes, interaction and combined files
+
+```{r create_DE_genes_tab}
+if (CALC_CONTRASTS) {
+  write_DE_genes_to_Excel (res_df2write)
+}
+if (CALC_INTERACTION) {
+  write_interaction_genes_to_Excel (res_df2write)
+}
+if (CALC_CONTRASTS & CALC_INTERACTION) {
+  write_combined_genes_to_Excel (res_df2write)
+}
+
+```
+
+### Add explanations sheet
+
+```{r exp_sheet}
+
+add_column_description_tab (wb1, grouping_header_DE, contrasts_data, incl_clust_results=TRUE, final_results_DE_file)
+
+```
+
+# Enrichment analyases
+
+##Read   functional annotation data from files
+
+```{r read_func_annot_from_files}
+
+Annotation_file=file.path(functional_annot_dir,paste('Annotation','tab', sep = '.'))
+
+if (file.exists(Annotation_file)) {
+  Annotation <- read.delim(Annotation_file, sep="\t", row.names=1,quote = "")
+  KEGG_flag          = FALSE
+  ORGANISM_KEGG_flag = FALSE
+  KEGG_KAAS_flag     = FALSE
+  GO_flag            = FALSE
+  ORGANISM           = ''
+}
+
+Pathway2name_file = file.path(functional_annot_dir,paste('Pathway2name','tab', sep = '.'))
+Pathway2gene_file = file.path(functional_annot_dir,paste('Pathway2gene','tab', sep = '.'))
+if ((file.exists(Pathway2name_file)) & (file.exists(Pathway2gene_file))){
+  Pathway2name = read.delim(Pathway2name_file, sep="\t", row.names=NULL)
+  Pathway2gene = read.delim(Pathway2gene_file, sep="\t", row.names=NULL)
+  KEGG_flag = TRUE
+}
+
+KASS_Pathway2name_file = file.path(functional_annot_dir,paste('KASS_Pathway2name','tab', sep = '.'))
+KASS_Pathway2gene_file = file.path(functional_annot_dir,paste('KASS_Pathway2gene','tab', sep = '.'))
+if ((file.exists(KASS_Pathway2name_file)) & (file.exists(KASS_Pathway2gene_file))){
+  KASS_Pathway2name = read.delim(KASS_Pathway2name_file, sep="\t", row.names=NULL)
+  KASS_Pathway2gene = read.delim(KASS_Pathway2gene_file, sep="\t", row.names=NULL)
+  KEGG_KAAS_flag = TRUE
+}
+
+ORGANISM_Pathway2name_file = file.path(functional_annot_dir,paste('ORGANISM_Pathway2name','tab', sep = '.'))
+ORGANISM_Pathway2gene_file = file.path(functional_annot_dir,paste('ORGANISM_Pathway2gene','tab', sep = '.'))
+if ((file.exists(ORGANISM_Pathway2name_file)) & (file.exists(ORGANISM_Pathway2gene_file))){
+  ORGANISM_Pathway2name = read.delim(ORGANISM_Pathway2name_file, sep="\t", row.names=NULL)
+  ORGANISM_Pathway2gene = read.delim(ORGANISM_Pathway2gene_file, sep="\t", row.names=NULL)
+  ORGANISM_KEGG_flag  = TRUE
+}
+
+GO_flag = FALSE
+GO2gene_MF_file = file.path(functional_annot_dir,paste('GO2gene_MF','tab', sep = '.'))
+GO2name_MF_file = file.path(functional_annot_dir,paste('GO2name_MF','tab', sep = '.'))
+GO2gene_BP_file = file.path(functional_annot_dir,paste('GO2gene_BP','tab', sep = '.'))
+GO2name_BP_file = file.path(functional_annot_dir,paste('GO2name_BP','tab', sep = '.'))
+GO2gene_CC_file = file.path(functional_annot_dir,paste('GO2gene_CC','tab', sep = '.'))
+GO2name_CC_file = file.path(functional_annot_dir,paste('GO2name_CC','tab', sep = '.'))
+
+GO2gene_MF = NA
+GO2name_MF = NA
+
+GO2gene_BP = NA
+GO2name_BP = NA
+
+GO2gene_CC = NA
+GO2name_CC = NA
+
+if ((file.exists(GO2gene_BP_file)) & (file.exists(GO2name_BP_file))){
+  GO2gene_BP = read.delim(GO2gene_BP_file, sep="\t", row.names=NULL)
+  GO2name_BP = read.delim(GO2name_BP_file, sep="\t", row.names=NULL)
+  GO_flag  = TRUE
+}
+
+if ((file.exists(GO2gene_MF_file)) & (file.exists(GO2name_MF_file))){
+  GO2gene_MF = read.delim(GO2gene_MF_file, sep="\t", row.names=NULL)
+  GO2name_MF = read.delim(GO2name_MF_file, sep="\t", row.names=NULL)
+  GO_flag  = TRUE
+}
+
+if ((file.exists(GO2gene_CC_file)) & (file.exists(GO2name_CC_file))){
+  GO2gene_CC = read.delim(GO2gene_CC_file, sep="\t", row.names=NULL)
+  GO2name_CC = read.delim(GO2name_CC_file, sep="\t", row.names=NULL)
+  GO_flag  = TRUE
+}
+
+
+if (!is.na(FILTER_KEGG_PATHWAYS_BY_TAXON)){
+  if (KEGG_KAAS_flag){
+    Pathways2Filter = Filter_Pathways_By_Taxa(FILTER_KEGG_PATHWAYS_BY_TAXON)
+    KASS_Pathway2name = KASS_Pathway2name[KASS_Pathway2name[1] %in% Pathways2Filter,]
+    KASS_Pathway2gene = KASS_Pathway2gene[KASS_Pathway2gene[1] %in% Pathways2Filter,]
+    
+  } else if (KEGG_flag ) {
+    Pathways2Filter = Filter_Pathways_By_Taxa(FILTER_KEGG_PATHWAYS_BY_TAXON)
+    Pathway2name = Pathway2name[Pathway2name[1] %in% Pathways2Filter,]
+    Pathway2gene = Pathway2gene[Pathway2gene[1] %in% Pathways2Filter,]
+  }
+}
+
+```
+## Other preparations
+
+```{r enrichment preparations}
+#Initialize data structure to hold enrichment result tables, to deliver to RShiny
+
+enrichment_tables = list()
+#Initialize a list to hold all plots created by the enrichment analyses
+#(not sure it is necessary, but may be used if we wish to create one report file with all plots)
+
+main_plot_list  = list() 
+
+```
+
+## Compute GO enrichment
+
+```{r GO enrichmentl}
+
+#GO enrichment
+
+GO_TYPES = c('BP', 'MF', 'CC')  # c('BP', 'MF', 'CC') or part of it
+
+for (GOType in GO_TYPES){
+  GO2gene = NA
+  GO2name = NA
+  if (GOType == 'BP'){
+    GO2gene = GO2gene_BP
+    GO2name = GO2name_BP
+  }
+  if (GOType == 'MF'){
+    GO2gene = GO2gene_MF
+    GO2name = GO2name_MF
+  }
+  
+  if (GOType == 'CC'){
+    GO2gene = GO2gene_CC
+    GO2name = GO2name_CC
+  }
+  
+  term_dir = sprintf("%s/GO_%s",enrichment_results_dir, GOType)
+  
+  allRes <- Clusters_Enrichment_Test(term_dir,clusters,GO2name,GO2gene,paste(GOType,'_GO_Enrichment_of_Clusters',sep="_"),"GO",pAdjustMethod=ENRICHMENT_PADJ_METHOD,pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
+  main_plot_list <- c(main_plot_list ,list(allRes[[2]]) )
+
+  #Vered 26.7.2023 - for delivery to RShiny
+  if (GOType == 'BP'){
+    enrichment_tables$"GO_BP" = allRes[[3]]
+  }
+  if (GOType == 'MF'){
+    enrichment_tables$"GO_BP" = allRes[[3]]
+  }
+  if (GOType == 'CC'){
+    enrichment_tables$"GO_CC" = allRes[[3]]
+  }
+  #create heatmaps of gene2term and term2term overlaps
+  if (PLOT_GO_TERM_OVERLAPS) {
+    term_dir2 = paste0 (term_dir, "/Shared_genes_among_pathways")
+    enrichment_results = allRes[[1]]@compareClusterResult
+    heatmaps = plot_shared_genes(enrichment_results,term_dir2,paste(GOType,'_GO'))
+    main_plot_list <- c(main_plot_list ,list(heatmaps))    
+  }
+    
+  # the code below should be adopted to this script
+  
+  # #compute enrichment for up- and down- genes (Vered: need to define them in my script, and to prepare subdirectories for the results - for each contrast)
+  # 
+  # if ((CALC_CONTRASTS) && ((length(down_reg)>0) || (length(up_reg)>0))){
+  #   up_down_clusters = clusters
+  #   if (length(down_reg)>0){
+  #     up_down_clusters[down_reg]='Down'
+  #   }
+  #   if (length(up_reg)>0){
+  #     up_down_clusters[up_reg]='UP'
+  #   }
+  #   
+  #   allRes <- Clusters_Enrichment_Test(enrichment_results_dir,up_down_clusters,GO2name,GO2gene,paste(GOType,'_GO_Enrichment_of_Up_and_Down_Clusters',SPLIT,sep="_"),"GO",pAdjustMethod=ENRICHMENT_PADJ_METHOD,pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
+  #   main_plot_list <- c(main_plot_list ,list(allRes[[2]]) )
+  #   
+  #   #plot overlap heatmaps
+  #   heatmaps = plot_shared_genes(allRes[[1]]@compareClusterResult,enrichment_results_dir,paste(GOType,'_GO_Enrichment_of_Up_and_Down_Clusters'))
+  #   main_plot_list <- c(main_plot_list ,list(heatmaps))
+  #   
+  # }
+  # 
+  # #compute enrhchment for all DE genes
+  # #in Liron's script these are per contrast. Here I have to modify the code so it is computed per contrast
+  # 
+  # One_cluster=clusters
+  # One_cluster[]=1
+  # allRes <- Clusters_Enrichment_Test(enrichment_results_dir,One_cluster,GO2name,GO2gene,paste(GOType,'_GO_Enrichment_of_All_Significant_Genes',SPLIT,sep="_"),"GO",pAdjustMethod=ENRICHMENT_PADJ_METHOD,pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
+  # main_plot_list <- c(main_plot_list ,list(allRes[[2]]) )
+  # 
+  # #create heatmaps of gene2term and term2term overlaps
+  # heatmaps = plot_shared_genes(allRes[[1]]@compareClusterResult,enrichment_results_dir,paste(GOType,'_GO_Enrichment_of_All_Significant_Genes'))
+  # main_plot_list <- c(main_plot_list ,list(heatmaps))
+  
+}
+
+```
+## Compute KEGG enrichment - Ensembl/uniprot
+
+```{r KEGG enrichmentl Ensembl Uniprot}
+
+#ORGANISM_KEGG_flag
+
+opt_KEGG_Enrichment_of = 'pathway'    #can be 'pathway' or 'ko' 
+
+if (opt_KEGG_Enrichment_of == 'ko'){   #Vered: not our case here
+  TERMS_Info= create_gene2kegg(Annotation,F)  # I have not tested the function yet
+  TERMS2GENES = TERMS_Info[1]
+  TERMS2NAMES = TERMS_Info[2]
+  if ((length(GENES2TERMS)>0)&&(length(TERMS2NAMES)>0) ){
+    ORGANISM_Pathway2name_ = TERMS2NAMES
+    ORGANISM_Pathway2gene_ = TERMS2GENES
+  }else{
+    ORGANISM_Pathway2name_ = ORGANISM_Pathway2name
+    ORGANISM_Pathway2gene_ = ORGANISM_Pathway2gene
+  }
+  
+}else{   #Vered: our case
+  ORGANISM_Pathway2name_ = ORGANISM_Pathway2name
+  ORGANISM_Pathway2gene_ = ORGANISM_Pathway2gene
+}
+
+term_dir = sprintf("%s/KEGG",enrichment_results_dir)
+
+#run enrichment tests
+#per cluster
+
+# allRes  <- Clusters_Enrichment_Test(term_dir,clusters,ORGANISM_Pathway2name_,ORGANISM_Pathway2gene_,paste(ORGANISM,'KEGG_Enrichment_Analysis_of_Clusters', sep="_"),"KEGG",pAdjustMethod=ENRICHMENT_PADJ_METHOD,pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
+# Vered 25.7.2023 removed ORGANISM from result file name, because it was not defined
+allRes  <- Clusters_Enrichment_Test(term_dir,clusters,ORGANISM_Pathway2name_,ORGANISM_Pathway2gene_,'_KEGG_Enrichment_Analysis_of_Clusters', "KEGG",pAdjustMethod=ENRICHMENT_PADJ_METHOD,pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
+main_plot_list <- c(main_plot_list ,list(allRes[[2]]) )
+
+# Vered 26.7.2023 for delivery to RShiny
+
+enrichment_tables$"KEGG" = allRes[[3]]
+#per contrast
+allRes_contrasts = Contrasts_Enrichment_Test(term_dir, gene_lists$contrasts, ORGANISM_Pathway2name_, ORGANISM_Pathway2gene_, paste(ORGANISM,'KEGG_Enrichment_Analysis_of_Contrasts', sep="_"),"KEGG", pAdjustMethod=ENRICHMENT_PADJ_METHOD, pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
+
+#create heatmaps of gene2term and term2term overlaps
+
+term_dir2 = paste0 (term_dir, "/Shared_genes_among_pathways")
+heatmaps = plot_shared_genes(allRes[[1]]@compareClusterResult,term_dir2,'KEGG')
+main_plot_list <- c(main_plot_list ,list(heatmaps))
+
+#The code below should be adjusted to this script (for up- and down- genes and for up+down genes per contrast)
+
+# if (((length(down_reg)>0) || (length(up_reg)>0)) && (is.na(opt$LRT))){
+#   up_down_clusters = clusters
+#   if (length(down_reg)>0){
+#     up_down_clusters[down_reg]='Down'
+#   }
+#   if (length(up_reg)>0){
+#     up_down_clusters[up_reg]='UP'
+#   }
+#   
+#   allRes <- Clusters_Enrichment_Test(enrichment_results_dir,up_down_clusters,ORGANISM_Pathway2name_,ORGANISM_Pathway2gene_,paste(ORGANISM,'KEGG_Enrichment_Analysis_of_Up_and_Down_Clusters',SPLIT,sep="_"),"KEGG",pAdjustMethod=ENRICHMENT_PADJ_METHOD,pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
+#   main_plot_list <- c(main_plot_list ,list(allRes[[2]]) )
+#   if (opt$Enriched_terms_overlap){
+#     heatmaps = plot_shared_genes(allRes[[1]]@compareClusterResult,enrichment_results_dir,'KEGG_Enrichment_Analysis_of_Up_and_Down_Clusters')
+#     main_plot_list <- c(main_plot_list ,list(heatmaps))
+#   }
+#   
+# }
+# 
+# One_cluster=clusters
+# One_cluster[]=1
+# allRes <- Clusters_Enrichment_Test(enrichment_results_dir,One_cluster,ORGANISM_Pathway2name_,ORGANISM_Pathway2gene_,paste(ORGANISM,'KEGG_Enrichment_Analysis_of_All_Significant_Genes',SPLIT,sep="_"),"KEGG",pAdjustMethod=ENRICHMENT_PADJ_METHOD,pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
+# main_plot_list <- c(main_plot_list ,list(allRes[[2]]) )
+# if (opt$Enriched_terms_overlap){
+#   heatmaps = plot_shared_genes(allRes[[1]]@compareClusterResult,enrichment_results_dir,'KEGG_Enrichment_Analysis_of_All_Significant_Genes')
+#   main_plot_list <- c(main_plot_list ,list(heatmaps))
+# }
+# 
+# if (((length(down_reg)>0) || (length(up_reg)>0)) && (is.na(opt$LRT))){
+#   pathway_table = create_pathway_table(enrichment_results_dir,up_reg,down_reg,Annotation,ORGANISM_Pathway2name,ORGANISM_Pathway2gene,Pathway_show_cutoff,T,Pathway_up_color,Pathway_down_color,F)
+# } else{
+#   pathway_table = create_pathway_table(enrichment_results_dir,sig.genes,c(),Annotation,ORGANISM_Pathway2name,ORGANISM_Pathway2gene,Pathway_show_cutoff,T,Pathway_up_color,Pathway_down_color,F)
+
+## Compute KEGG enrichment - Ensembl/uniprot
+
+```
+## KEGG enrichment with GSEA, by p-value wo direction of change
+
+```{r KEGG enrichmentl GSEA}
+
+contrast_of_interest = "M_Reverse.vs.NC"
+pval_col = paste0 ("pvalue.", contrast_of_interest)
+contrast_df = stats_df %>%
+  select (gene, {{pval_col}}) %>%
+  setNames(c("gene", "pval")) %>%
+  filter(!is.na(pval)) %>%
+  mutate(pval = -log10(pval)) %>%
+  mutate(pval = ifelse(is.na(pval), yes = 0, no = pval)) %>%
+  arrange(desc(pval))
+  
+#create a named vector
+ranked_genes = pull(contrast_df, pval)
+names(ranked_genes) = pull(contrast_df, gene)
+
+#run GSEA (based on code from Hyppolite project)
+
+nr_total_genes = length(unique(ORGANISM_Pathway2gene_[,2]))  #no. of genes having assigned pathways
+res=GSEA (
+  geneList=ranked_genes,
+  TERM2GENE=ORGANISM_Pathway2gene_, 
+  TERM2NAME=ORGANISM_Pathway2name_,
+  minGSSize     = 4,
+  maxGSSize     = nr_total_genes,
+  # eps = 0,
+  pAdjustMethod = ENRICHMENT_PADJ_METHOD,
+  pvalueCutoff  = ENRICHMENT_PVAL_CUTOFF)
+head(res)
+GSEA_results = data.frame(res)
+
+GESE_results_file = paste0 (term_dir, "/GSEA_results_", contrast_of_interest, "_pval_wo_direction.txt")
+write.table(GSEA_results, file=GESE_results_file, sep = "\t", quote = F, col.names = T, row.names = F)
+
+#Plot GSEA graph of a specific pathway
+gseaplot2(res, geneSetID = 2, title = res$Description[2])
+gseaplot2(res, geneSetID = "path:map04080", title = res$Description[3])  #assuming path:map04080 is the third in the results
+
+gseaplot2(res, geneSetID = 12, title = res$Description[12])
+gseaplot2(res, geneSetID = 22, title = res$Description[22])  #spliceosome
+
+#another option:
+gseaplot(res, geneSetID = 22, by = "runningScore", title = res$Description[22])
+
+#draw a heatmap of leading edge genes
+pathway_nr = 22
+pathway_title = res$Description[pathway_nr]
+leading_edge_genes = res$core_enrichment[pathway_nr] %>% stringi::stri_split(regex = "/") %>% unlist
+
+#get norm_log_counts counts
+mat2plot_le = filter_expression_matrix_by_gene_list (norm_log_counts, leading_edge_genes)
+
+#construct graph title
+nr_genes = length(leading_edge_genes)
+title = paste0("Leading edge genes in ", pathway_title, " (n=", nr_genes, ")")
+
+#specify output file
+file_name = paste0 (term_dir, "/GSEA_results_heatmap_", pathway_nr, ".png")
+
+#plot_heatmap
+pheatmap_data_gene_list = plot_expression_heatmap(mat2plot_le, EFFECTS, stats_df, col_data, file_name, color_range="red2blue", plot_title=title)
+
+#create gene info table for printing
+
+orig_genes = row.names(mat2plot_le)
+ordered_genes = orig_genes[pheatmap_data_gene_list$tree_row$order]  #order genes by hierarchical clustering order
+res_df2write_DE <- res_df2write[ordered_genes,] %>% select (-starts_with ("manual_cutoffs"))  #add expression and statistics data
+# Add manual cluster
+man_clusters_df = make_data_frame_from_clusters(man_clusters) %>% setNames(c("gene", "manual_cluster"))
+res_df2write_DE1 = left_join(x=res_df2write_DE, y=man_clusters_df, by="gene")
+# Add Z-score data
+zscore <- norm_log_counts %>% t %>% scale %>% t
+colnames(zscore) <- zscore %>% colnames %>% paste0(.,".zscore")
+zscore <- zscore %>% as_tibble(rownames = "gene") 
+res_df2write_DE2 = left_join(x=res_df2write_DE1, y=zscore, by="gene")
+#print table
+file_name_csv = paste0 (term_dir, "/GSEA_Leading_Edge_", pathway_nr, ".csv")
+write.csv(res_df2write_DE2, file_name_csv, na="")
+
+```
+
+## KEGG enrichment with GSEA, by p-value with direction of change  #Vered Aug2023
+
+```{r KEGG enrichmentl GSEA}
+
+contrast_of_interest = "M_Reverse.vs.NC"
+pval_col = paste0 ("pvalue.", contrast_of_interest)
+fc_col   = paste0 ("linearFC.", contrast_of_interest)
+contrast_df = stats_df %>%
+  select (gene, {{fc_col}}, {{pval_col}}) %>%
+  setNames(c("gene", "fc", "pval")) %>%
+  filter (!is.na(fc)) %>%
+  filter (!is.na(pval)) %>%
+  mutate(pval = -log10(pval)) %>%
+  mutate(pval = ifelse(is.na(pval), yes = 0, no = pval)) %>%
+  mutate(pval = ifelse(is.na(fc),
+                       yes = 0,
+                       no = ifelse(fc>0,
+                                   yes = pval,
+                                   no = -pval
+                       ))) %>%
+  select (-fc) %>%
+  arrange(desc(pval))
+  
+#create a named vector
+ranked_genes = pull(contrast_df, pval)
+names(ranked_genes) = pull(contrast_df, gene)
+
+#run GSEA (based on code from Hypolite project)
+
+nr_total_genes = length(unique(ORGANISM_Pathway2gene_[,2]))  #no. of genes having assigned pathways
+res1=GSEA (
+  geneList=ranked_genes,
+  TERM2GENE=ORGANISM_Pathway2gene_, 
+  TERM2NAME=ORGANISM_Pathway2name_,
+  minGSSize     = 4,
+  maxGSSize     = nr_total_genes,
+  pAdjustMethod = ENRICHMENT_PADJ_METHOD,
+  pvalueCutoff  = ENRICHMENT_PVAL_CUTOFF)
+head(res1)
+GSEA_results1 = data.frame(res1)
+
+GESE_results_file = paste0 (term_dir, "/GSEA_results_", contrast_of_interest, "_pval_with_direction.txt")
+write.table(GSEA_results1, file=GESE_results_file, sep = "\t", quote = F, col.names = T, row.names = F)
+
+#Plot GSEA graph of a specific pathway
+gseaplot2(res1, geneSetID = 3, title = res1$Description[3])  #oxidative phosphorylation
+gseaplot2(res1, geneSetID = 7, title = res1$Description[7])
+
+
+```
+## KEGG enrichment with GSEA, by FC with direction of change  #Vered Aug2023
+
+```{r KEGG enrichmentl GSEA}
+
+contrast_of_interest = "M_Reverse.vs.NC"
+fc_col   = paste0 ("linearFC.", contrast_of_interest)
+contrast_df = stats_df %>%
+  select (gene, {{fc_col}}) %>%
+  setNames(c("gene", "fc")) %>%
+  filter (!is.na(fc)) %>%
+  mutate (fc = ifelse (fc > 0,
+                        yes = fc,
+                        no = -1/fc)) %>%
+  mutate (fc = log2(fc)) %>%
+  mutate (fc = signif(fc, digits = 4)) %>%
+  arrange(desc(fc))
+
+# ifelse(is.na(fc),
+#                       yes = 1,
+#                       no = 
+    
+#create a named vector
+ranked_genes = pull(contrast_df, fc)
+names(ranked_genes) = pull(contrast_df, gene)
+
+#run GSEA (based on code from Hypolite project)
+
+nr_total_genes = length(unique(ORGANISM_Pathway2gene_[,2]))  #no. of genes having assigned pathways
+res2=GSEA (
+  geneList=ranked_genes,
+  TERM2GENE=ORGANISM_Pathway2gene_, 
+  TERM2NAME=ORGANISM_Pathway2name_,
+  minGSSize     = 4,
+  maxGSSize     = nr_total_genes,
+  pAdjustMethod = ENRICHMENT_PADJ_METHOD,
+  pvalueCutoff  = ENRICHMENT_PVAL_CUTOFF)
+head(res2)
+GSEA_results2 = data.frame(res2)
+
+GESE_results_file = paste0 (term_dir, "/GSEA_results_", contrast_of_interest, "_by_FC.txt")
+write.table(GSEA_results2, file=GESE_results_file, sep = "\t", quote = F, col.names = T, row.names = F)
+
+#Plot GSEA graph of a specific pathway
+gseaplot2(res2, geneSetID = 3, title = res2$Description[3])  #oxidative phosphorylation
+gseaplot2(res2, geneSetID = 7, title = res2$Description[7])
+
+```
+
+## Compute KEGG enrichment - B
+
+```{r KEGG enrichmentl B}
+
+# #KEGG_flag
+# 
+# opt_KEGG_Enrichment_of = 'pathway'    #can be 'pathway' or 'ko'
+# 
+# if (opt_KEGG_Enrichment_of == 'ko'){
+#   TERMS_Info= create_gene2kegg(Annotation,T)
+#   TERMS2GENES = TERMS_Info[1]
+#   TERMS2NAMES = TERMS_Info[2]
+#   if ((length(GENES2TERMS)>0)&&(length(TERMS2NAMES)>0) ){
+#     Pathway2name_ = TERMS2NAMES
+#     Pathway2gene_ = TERMS2GENES
+#   }else{
+#     Pathway2name_ = Pathway2name
+#     Pathway2gene_ = Pathway2gene
+#   }
+#   
+# }else{
+#   Pathway2name_ = Pathway2name
+#   Pathway2gene_ = Pathway2gene
+# }
+# allRes <- Clusters_Enrichment_Test(enrichment_results_dir,clusters,Pathway2name_,Pathway2gene_,paste('KEGG_Enrichment_Analysis_of_Clusters',SPLIT,sep="_"),"KEGG",pAdjustMethod=ENRICHMENT_PADJ_METHOD,pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
+# main_plot_list <- c(main_plot_list ,list(allRes[[2]]) )
+# if (opt$Enriched_terms_overlap){
+#   heatmaps = plot_shared_genes(allRes[[1]]@compareClusterResult,enrichment_results_dir,'KEGG_Enrichment_Analysis_of_Clusters')
+#   main_plot_list <- c(main_plot_list ,list(heatmaps))
+# }
+# 
+# if (((length(down_reg)>0) || (length(up_reg)>0)) && (is.na(opt$LRT))){
+#   up_down_clusters = clusters
+#   if (length(down_reg)>0){
+#     up_down_clusters[down_reg]='Down'
+#   }
+#   if (length(up_reg)>0){
+#     up_down_clusters[up_reg]='UP'
+#   }
+#   
+#   allRes <- Clusters_Enrichment_Test(enrichment_results_dir,up_down_clusters,Pathway2name_,Pathway2gene_,paste('KEGG_Enrichment_Analysis_of_Up_and_Down_Clusters',SPLIT,sep="_"),"KEGG",pAdjustMethod=ENRICHMENT_PADJ_METHOD,pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
+#   main_plot_list <- c(main_plot_list ,list(allRes[[2]]) )
+#   if (opt$Enriched_terms_overlap){
+#     heatmaps = plot_shared_genes(allRes[[1]]@compareClusterResult,enrichment_results_dir,'KEGG_Enrichment_Analysis_of_Up_and_Down_Clusters')
+#     main_plot_list <- c(main_plot_list ,list(heatmaps))
+#   }
+#   
+# }
+# 
+# One_cluster=clusters
+# One_cluster[]=1
+# allRes <- Clusters_Enrichment_Test(enrichment_results_dir,One_cluster,Pathway2name_,Pathway2gene_,paste('KEGG_Enrichment_Analysis_of_All_Significant_Genes',SPLIT,sep="_"),"KEGG",pAdjustMethod=ENRICHMENT_PADJ_METHOD,pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
+# main_plot_list <- c(main_plot_list ,list(allRes[[2]]) )
+# if (opt$Enriched_terms_overlap){
+#   heatmaps = plot_shared_genes(allRes[[1]]@compareClusterResult,enrichment_results_dir,'KEGG_Enrichment_Analysis_of_All_Significant_Genes')
+#   main_plot_list <- c(main_plot_list ,list(heatmaps))
+# }
+# 
+# if (((length(down_reg)>0) || (length(up_reg)>0)) && (is.na(opt$LRT))){
+#   pathway_table = create_pathway_table(enrichment_results_dir,up_reg,down_reg,Annotation,Pathway2name,Pathway2gene,Pathway_show_cutoff,T,Pathway_up_color,Pathway_down_color)
+# } else{
+#   pathway_table = create_pathway_table(enrichment_results_dir,sig.genes,c(),Annotation,Pathway2name,Pathway2gene,Pathway_show_cutoff,T,Pathway_up_color,Pathway_down_color)
+# }
+# 
+
+```
+## Compute KEGG enrichment - C
+
+```{r KEGG enrichmentl C}
+
+# #KEGG_KAAS_flag
+# 
+# opt_KEGG_Enrichment_of = 'pathway'    #can be 'pathway' or 'ko'
+# 
+# if (opt_KEGG_Enrichment_of == 'ko'){
+#   TERMS_Info= create_gene2kegg(Annotation,T)
+#   TERMS2GENES = TERMS_Info[1]
+#   TERMS2NAMES = TERMS_Info[2]
+#   if ((length(GENES2TERMS)>0)&&(length(TERMS2NAMES)>0) ){
+#     KASS_Pathway2name_ = TERMS2NAMES
+#     KASS_Pathway2gene_ = TERMS2GENES
+#   }else{
+#     KASS_Pathway2name_ = KASS_Pathway2name
+#     KASS_Pathway2gene_ = KASS_Pathway2gene
+#   }
+#   
+# }else{
+#   KASS_Pathway2name_ = KASS_Pathway2name
+#   KASS_Pathway2gene_ = KASS_Pathway2gene
+# }
+# 
+# allRes <- Clusters_Enrichment_Test(enrichment_results_dir,clusters,KASS_Pathway2name_,KASS_Pathway2gene_,paste('KEGG_Enrichment_Analysis_of_Clusters',SPLIT,sep="_"),"KEGG",pAdjustMethod=ENRICHMENT_PADJ_METHOD,pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
+# main_plot_list <- c(main_plot_list ,list(allRes[[2]]) )
+# if (opt$Enriched_terms_overlap){
+#   heatmaps = plot_shared_genes(allRes[[1]]@compareClusterResult,enrichment_results_dir,'KEGG_Enrichment_Analysis_of_Clusters')
+#   main_plot_list <- c(main_plot_list ,list(heatmaps))
+# }
+# 
+# 
+# if (((length(down_reg)>0) || (length(up_reg)>0)) && (is.na(opt$LRT))){
+#   up_down_clusters = clusters
+#   if (length(down_reg)>0){
+#     up_down_clusters[down_reg]='Down'
+#   }
+#   if (length(up_reg)>0){
+#     up_down_clusters[up_reg]='UP'
+#   }
+#   
+#   allRes <- Clusters_Enrichment_Test(enrichment_results_dir,up_down_clusters,KASS_Pathway2name_,KASS_Pathway2gene_,paste('KEGG_Enrichment_Analysis_of_Up_and_Down_Clusters',SPLIT,sep="_"),"KEGG",pAdjustMethod=ENRICHMENT_PADJ_METHOD,pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
+#   main_plot_list <- c(main_plot_list ,list(allRes[[2]]) )
+#   if (opt$Enriched_terms_overlap){
+#     heatmaps = plot_shared_genes(allRes[[1]]@compareClusterResult,enrichment_results_dir,'KEGG_Enrichment_Analysis_of_Up_and_Down_Clusters')
+#     main_plot_list <- c(main_plot_list ,list(heatmaps))
+#   }
+# }
+# 
+# One_cluster=clusters
+# One_cluster[]=1
+# allRes <- Clusters_Enrichment_Test(enrichment_results_dir,One_cluster,KASS_Pathway2name_,KASS_Pathway2gene_,paste('KEGG_Enrichment_Analysis_of_All_Significant_Genes',SPLIT,sep="_"),"KEGG",pAdjustMethod=ENRICHMENT_PADJ_METHOD,pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
+# main_plot_list <- c(main_plot_list ,list(allRes[[2]]) )
+# if (opt$Enriched_terms_overlap){
+#   heatmaps = plot_shared_genes(allRes[[1]]@compareClusterResult,enrichment_results_dir,'KEGG_Enrichment_Analysis_of_All_Significant_Genes')
+#   main_plot_list <- c(main_plot_list ,list(heatmaps))
+# }
+# 
+# if (((length(down_reg)>0) || (length(up_reg)>0)) && (is.na(opt$LRT))){
+#   pathway_table = create_pathway_table(enrichment_results_dir,up_reg,down_reg,Annotation,KASS_Pathway2name,KASS_Pathway2gene,Pathway_show_cutoff,T,Pathway_up_color,Pathway_down_color)
+# } else{
+#   pathway_table = create_pathway_table(enrichment_results_dir,sig.genes,c(),Annotation,KASS_Pathway2name,KASS_Pathway2gene,Pathway_show_cutoff,T,Pathway_up_color,Pathway_down_color)
+# }
+
+
+```
+
+# Preparing data for SQL import
+
+Doing this on the complete data, including day1. To do this, I removed the day filtering in section 
+Vered: In the Cherax dataset, it only outputs the current tissue
+
+```{r reads2mysql}
+
+file_for_SQL = sprintf("%s/norm_counts_for_MySQL.txt", results_dir)
+
+norm_counts %>% 
+    as_tibble(rownames = NA) %>% 
+    rownames_to_column( var = "gene") %>% 
+    gather(key=sample,value=norm_counts,-gene) %>% 
+    # full_join(col_data[,c("SampleID","Day","Sex")],by=c("sample"="SampleID")) %>% 
+    full_join(col_data,by=c("sample"="SampleID")) %>% 
+    write_delim(file_for_SQL, delim="\t")
+
+
+
+
+```
+#Preparing data for RShiny
+
+```{r data4RShiny}
+
+
+r_objects_file = sprintf ("%s/Analysis_Objects.RData", results_dir)
+mat2plot = filter_expression_matrix_by_gene_list (norm_log_counts, top_DE_genes)
+
+#remove "manual_cutoffs" columns from stats_df
+stats_df_orig = stats_df
+stats_df = select(stats_df, -starts_with("manual_cutoffs"))
+
+#arrange cutoffs and parameters in one list
+cutoffs = list(LINEAR_FC_CUTOFF=LINEAR_FC_CUTOFF, PADJ_CUTOFF=PADJ_CUTOFF, CORR_CUTOFF=CORR_CUTOFF, COUNTS_CUTOFF=COUNTS_CUTOFF, ENRICHMENT_PVAL_CUTOFF=ENRICHMENT_PVAL_CUTOFF, ENRICHMENT_PADJ_METHOD=ENRICHMENT_PADJ_METHOD, EFFECT1=EFFECTS[1], EFFECT2=EFFECTS[2], GROUP=GROUP, GROUP1=GROUP1)
+
+#get all trinotate data from trinotate file
+trinotate <- read.delim(file = trinotate_file)
+
+#store
+if (exists("trinotate_main")) {
+  save(analysis_name, cutoffs, trinotate, col_data, contrasts_data, norm_counts, norm_log_counts, stats_df, DE_genes, DE_genes_stats, mat2plot, corrs2, binary_patterns_stats, clusters, ORGANISM_Pathway2name_, ORGANISM_Pathway2gene_, enrichment_tables, file=r_objects_file)
+} else if (exists("annot")) {
+  save(analysis_name, cutoffs, annot,     col_data, contrasts_data, norm_counts, norm_log_counts, stats_df, DE_genes, DE_genes_stats, mat2plot, corrs2, binary_patterns_stats, clusters, ORGANISM_Pathway2name_, ORGANISM_Pathway2gene_, enrichment_tables, file=r_objects_file)
+}
+
+```
+
+# Session info
+```{r session_info}
+sessionInfo()
+```
+
