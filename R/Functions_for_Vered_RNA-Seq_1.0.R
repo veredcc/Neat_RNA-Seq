@@ -13,34 +13,17 @@ import_rsem = function (rsem_files_locations, CHOP_GENE_ID_BY_DELIMITER=F, GENE_
   file_vec          = file_table$File
   names(file_vec)   = file_table$Sample
   
-  # tx2gene <- read_delim(gene_transcript_map,
-  #                       # n_max=10,
-  #                       col_names=c("GENEID","TXNAME"),            
-  #                       delim="\t")
-  # tx2gene <- tx2gene[,c(2,1)]
-  
   #tximport - import RSEM files
   txi.rsem <- tximport(file_vec, 
                        type = "rsem")
   
   head(txi.rsem$counts) 
 
-
   if (CHOP_GENE_ID_BY_DELIMITER) {
     rownames(txi.rsem$abundance)=lapply(X =rownames(txi.rsem$abundance),FUN = function(x)     unlist(stringi::stri_split(str = x,regex = GENE_ID_DELIMITER))[1] )
-    #rownames(txi.rsem$abundance)=lapply(X =rownames(txi.rsem$abundance),FUN = function(x) rev(unlist(stringi::stri_split(str = x,regex = ":")))[1] )
-    
     rownames(txi.rsem$counts)=lapply(X =rownames(txi.rsem$counts),FUN = function(x) unlist(stringi::stri_split(str = x,regex = GENE_ID_DELIMITER))[1] )
-    #rownames(txi.rsem$counts)=lapply(X =rownames(txi.rsem$counts),FUN = function(x) rev(unlist(stringi::stri_split(str = x,regex = ":")))[1] )
-    
     rownames(txi.rsem$length)=lapply(X =rownames(txi.rsem$length),FUN = function(x) unlist(stringi::stri_split(str = x,regex = GENE_ID_DELIMITER))[1] )
-    #rownames(txi.rsem$length)=lapply(X =rownames(txi.rsem$length),FUN = function(x) rev(unlist(stringi::stri_split(str = x,regex = ":")))[1] )
   }
-  
-  #from Liron DeSeq2 module 29.3.2023. Did not try it. Don't think it is necessary
-  #colnames(txi.rsem$abundance) = make.names(colnames(txi.rsem$abundance))
-  #colnames(txi.rsem$counts) = make.names(colnames(txi.rsem$counts))
-  #colnames(txi.rsem$length) = make.names(colnames(txi.rsem$length))
     
   return (txi.rsem)
 }
@@ -157,17 +140,17 @@ process_trinotate_data = function (trinotate_file) {
   
   ## Parse Trinotate data
   
-  #Vered 10.7.2023 get all gene IDs (to be used on the final merge)
+  #get all gene IDs (to be used on the final merge)
   all_genes = trinotate %>%
     select (X.gene_id) %>%
     unique
   
-  #vered 10.7.2023 get RNA predictions from infernal
+  #get RNA predictions from infernal
   trinotate_main_infernal =
     trinotate[,c("X.gene_id",
                  "infernal")] %>% 
     as_tibble %>% 
-    # Remove unidetified:
+    # Remove unidetified
     filter(infernal!="." ) %>% 
     unique %>%
     mutate(RNA_Infernal = str_replace(string = infernal,
@@ -180,11 +163,11 @@ process_trinotate_data = function (trinotate_file) {
     trinotate[,c("X.gene_id",
                  "sprot_Top_BLASTX_hit")] %>% 
     as_tibble %>% 
-    # Remove unidetified:
+    # Remove unidetified
     filter( sprot_Top_BLASTX_hit!=".") %>% 
     # For sprot blastx:
     # Hits are encoded in a table where field separator is '^' and record separator is '`' (back tick)
-    # Keep only first hit:
+    # Keep only first hit
     mutate(sprot_edit = str_replace(string = sprot_Top_BLASTX_hit,
                                     pattern = "\\`.*",
                                     replacement = "")) %>% 
@@ -199,7 +182,7 @@ process_trinotate_data = function (trinotate_file) {
                           c("Name","Acc","Pos","percID","eval","RecName","Lineage"),
                           sep="_"),
              sep = "\\^") %>%  
-    # Remove RecName extra characters:
+    # Remove RecName extra characters
     mutate(sprot_RecName = str_replace(string = sprot_RecName,
                                        pattern = "^RecName: Full=",
                                        replacement = "")) %>% 
@@ -220,13 +203,12 @@ process_trinotate_data = function (trinotate_file) {
   # Doing the same for the protein BLASTP results
   trinotate_main_sprot_BLASTP <-
     trinotate[,c("X.gene_id",
-                 # "transcript_id",
                  "sprot_Top_BLASTP_hit")] %>% 
     as_tibble %>% 
-    # Remove unidetified:
+    # Remove unidetified
     filter( sprot_Top_BLASTP_hit!="." ) %>% 
-    # For sprot blastx:
-    # Keep only first hit:
+    # For sprot blastx
+    # Keep only first hit
     mutate(sprot_edit = str_replace(string = sprot_Top_BLASTP_hit,
                                     pattern = "\\`.*",
                                     replacement = "")) %>% 
@@ -241,13 +223,13 @@ process_trinotate_data = function (trinotate_file) {
                           c("Name","Acc","Pos","percID","eval","RecName","Lineage"),
                           sep="_"),
              sep = "\\^") %>%  
-    # Remove RecName extra characters:
+    # Remove RecName extra characters
     mutate(sprot_RecName = str_replace(string = sprot_RecName,
                                        pattern = "^RecName: Full=",
                                        replacement = "")) %>% 
     # Select required columns
     select("X.gene_id","sprot_Name","sprot_RecName","sprot_percID","sprot_eval") %>%
-    # Agglomerating multiple values per record:
+    # Agglomerating multiple values per record
     group_by(X.gene_id) %>%
     summarise(blastp_Name = paste0(sprot_Name, collapse = "|"),
               blastp_RecName = paste0(sprot_RecName, collapse = "|"),
@@ -259,15 +241,12 @@ process_trinotate_data = function (trinotate_file) {
   trinotate_main_pfam <-
     trinotate[,c("X.gene_id",
                  "Pfam")] %>% 
-    filter(Pfam != ".") %>%  # Remove unidetified:
+    filter(Pfam != ".") %>%  # Remove unidetified
     unique
-  #%>%
-  #cbind(pfam_domains=sapply(X = trinotate_main_pfam[,"Pfam"],
-  #                          FUN = parse_pfam)) %>%
-  #same as
+
   trinotate_main_pfam$pfam_domains = sapply(X = trinotate_main_pfam[,"Pfam"],
                                             FUN = parse_pfam)
-  #%>%
+
   trinotate_main_pfam1 = 
     trinotate_main_pfam %>%
     select ("X.gene_id", "pfam_domains") %>%
@@ -324,6 +303,7 @@ parse_pfam = function (pfam_data) {
   pfam_summary = pfam_items1 %>% unique %>% paste0(collapse=", ")
   return(pfam_summary)
 }
+
 ##### Statistical analysis #####
 
 run_deseq2 = function (txi.rsem, col_data, DESIGN, use_expanded_model=TRUE) {
@@ -339,7 +319,6 @@ run_deseq2 = function (txi.rsem, col_data, DESIGN, use_expanded_model=TRUE) {
                  modelMatrixType = "expanded")
   } else {
     dds <- DESeq(dds0,
-                 #parallel = TRUE,    ###14.3.2023 after installing new version of R and all packages, paralellization resulted in an error. So I ran wo this argument 
                  betaPrior = FALSE)
   }
   
@@ -349,7 +328,6 @@ run_deseq2 = function (txi.rsem, col_data, DESIGN, use_expanded_model=TRUE) {
 }
 
 run_deseq2_interaction = function (txi.rsem, col_data, DESIGN_INTERACTION, LRT, use_expanded_model=TRUE) {
-  #function added by Vered on 26.3.2023
   
   dds_interaction0 <- DESeqDataSetFromTximport(txi = txi.rsem,
                                                colData = col_data,
@@ -359,14 +337,12 @@ run_deseq2_interaction = function (txi.rsem, col_data, DESIGN_INTERACTION, LRT, 
     dds_interaction <- DESeq(dds_interaction0,             #I have not tested that with LRT (26.3.2023)
                        test="LRT",
                        reduced = as.formula(LRT),
-                       #parallel = TRUE,
                        betaPrior = TRUE,  
                        modelMatrixType = "expanded")
   } else {
     dds_interaction <- DESeq(dds_interaction0,
                        test="LRT",
                        reduced = as.formula(LRT),
-                       #parallel = TRUE,    ###14.3.2023 after installing new version of R and all packages, paralellization resulted in an error. So I ran wo this argument 
                        betaPrior = FALSE)
   }
   
@@ -391,7 +367,6 @@ compute_contrasts = function (dds, contrasts_data) {
               alpha = DESEQ_PADJ_CUTOFF) %>%
       as.data.frame %>% 
       as_tibble %>% 
-      # mutate(basemeans = round(baseMean,digits = 2)) %>% 
       mutate(linearFC = ifelse(is.na(log2FoldChange),
                                yes = NA,
                                no = ifelse(log2FoldChange>0,
@@ -414,7 +389,7 @@ compute_contrasts = function (dds, contrasts_data) {
                            no = "")) %>%
       mutate(manual_cutoffs = manual_cutoff_formula) %>%
       select(linearFC,pvalue,padj,pass,manual_cutoffs) %>%
-      # select(linearFC,pvalue,padj,pass) %>% 
+      # select(linearFC,pvalue,padj,pass) %>%                #without manual_cutoffs formula cols
       dplyr::rename(!!paste0("linearFC.",      contrast_name) := linearFC) %>%
       dplyr::rename(!!paste0("pvalue.",        contrast_name) := pvalue) %>%
       dplyr::rename(!!paste0("padj.",          contrast_name) := padj) %>%
@@ -433,7 +408,7 @@ compute_contrasts = function (dds, contrasts_data) {
                                      pattern = "pass")],
             MARGIN = 1,
             FUN = function(x) any(unlist(x)!=""))
-    # Convert TRUE/FALSE to 1/"":
+    # Convert TRUE/FALSE to 1/""
     stats_df$pass_any <- ifelse(test = !is.na(stats_df$pass_any) & stats_df$pass_any==TRUE,
                                 yes = 1,
                                 no = "")
@@ -468,7 +443,7 @@ compute_interaction = function (dds_interaction) {
                          no = signif(padj,digits = 3))) %>% 
     mutate(pass.interaction = ifelse(test = 
                            padj <= PADJ_CUTOFF_INTERACTION & #uncomment to use FDR cutoff !!! 
-                           #pvalue <= PVAL_CUTOFF &  #uncomment to use unadjusted p-value cutoff !!!            
+                           #pvalue <= PVAL_CUTOFF &          #uncomment to use unadjusted p-value cutoff !!!            
                            !is.na(padj),
                          yes = "interaction",
                          no = "")) %>%
@@ -493,8 +468,6 @@ combine_stat_dfs = function (stats_df, stats_df_interaction) {
 }
 
 de_summary_stats = function (stats_df, DE_genes_stats_file) {
-  
-  #cat ("No. of DE genes in any comparison: ", sum(stats_df$pass_any==1))
   
   DE_genes_stats =
     apply(X = stats_df[,str_detect(string = names(stats_df),
@@ -547,7 +520,7 @@ get_top_DE_genes = function (stats_df, n=2000) {
   
   top_DE_genes <-
     stats_df %>%
-    # Add column with minimum padj:
+    # Add column with minimum padj
     cbind(min_padj=apply(X = stats_df[,padj_cols] ,
                          MARGIN=1,
                          FUN = function(x) ifelse(test = all(is.na(x)),
@@ -555,12 +528,11 @@ get_top_DE_genes = function (stats_df, n=2000) {
                                                   no = min(x,na.rm = T)))) %>%
     as_tibble %>% 
     filter(pass_any=="1") %>% 
-    # Select top n genes by descending padj:
+    # Select top n genes by descending padj
     top_n(n = n,wt = desc(min_padj)) %>% 
     dplyr::select(gene) %>%
     unlist
 
-  #vered 17.12.2020:
   #if, for example, the n+1 gene has the same min padj as the n gene, the top_n function will return n+1 genes.
   #therefore, I add the code below to make sure that only n genes will be returned.
   
@@ -732,8 +704,6 @@ calc_best_pattern_per_gene = function (corrs, CORR_CUTOFF=0.8, result_file_name,
   
   check_pass = function (a) {
     best_p = as.character (a["best_pattern"])
-    #best_p = paste("", best_p, sep="")   #to strip it from the data frame class (hack by vered. need to find a better way)
-    #best_p = as.character(best_p)     #to strip it from the data frame class
     if (!is.na (best_p) && isTRUE(as.logical(a[best_p]))) {
       return (best_p)
     } else {
@@ -774,7 +744,6 @@ calc_best_pattern_per_gene = function (corrs, CORR_CUTOFF=0.8, result_file_name,
               quote = F,
               sep = "\t",
               row.names = F)
-              #col.names = c("Pattern", "No. of genes", "C", "D"))
 
   return (list(corrs2=corrs2, binary_patterns_stats=corr2_stats_merged))
 }
@@ -830,13 +799,6 @@ draw_pca = function (norm_log_counts, results_dir, pc_x=1, pc_y=2, shape, color)
   
   norm_log_counts_pca_percentVar <- norm_log_counts_pca$sdev^2/sum(norm_log_counts_pca$sdev^2)
   names(norm_log_counts_pca_percentVar) <- colnames(norm_log_counts_pca$x)
-  
-  # pca2plot <- data.frame(norm_log_counts_pca$x[,c(axis1,axis2)],
-  #                        Color=col_data[,color_factor],
-  #                        Shape=col_data[,shape_factor],
-  #                        Sample=str_replace(string = col_data$SampleID,
-  #                                           pattern = "^X",
-  #                                           replacement = ""))
   
   pca2plot <- data.frame(norm_log_counts_pca$x[,c(axis1,axis2)],
                          Shape=col_data[,shape_factor],
@@ -915,7 +877,7 @@ draw_ma_and_volcano_plots = function (dds, contrasts_data, results_dir) {
     MA_plot_file = sprintf("%s/MAPlot_%s.png",results_dir,contrast_name)
     volcano_plot_file = sprintf("%s/VolcanoPlot_%s.png",results_dir,contrast_name)
     
-    # Draw MA plot:
+    # Draw MA plot
     
     png(filename = MA_plot_file)
     plotMA(compar_res,
@@ -926,12 +888,11 @@ draw_ma_and_volcano_plots = function (dds, contrasts_data, results_dir) {
     abline(h = c(LOG_FC_CUTOFF,-LOG_FC_CUTOFF),col="green")
     dev.off()
 
-    # Draw volcano plot:
+    # Draw volcano plot
     # code adopted from: https://support.bioconductor.org/p/78962/
 
       data2plot <- compar_res %>% 
       as_tibble %>% 
-      # filter(!is.na(padj) & padj != 1) %>%
       mutate(highFC=(abs(log2FoldChange)>LOG_FC_CUTOFF),
              lowPADJ=(padj<=PADJ_CUTOFF),
              signif=((abs(log2FoldChange)>LOG_FC_CUTOFF) & (padj<=PADJ_CUTOFF)),
@@ -1009,7 +970,7 @@ draw_ma_and_volcano_plots_pdf = function (dds, contrasts_data, results_dir) {
   
   pdf(pdf_file_name)
   marrangeGrob(p, ncol=2, nrow=2)
-  #marrangeGrob(p, ncol=1, nrow=1)
+
   dev.off() 
   
 }
@@ -1028,15 +989,11 @@ plot_expression_heatmap = function (mat2plot, EFFECTS, stats_df, col_data, file_
   # heatmap column annotation
   col_annotation = col_data %>% select(all_of(EFFECTS))
 
-  # as_tibble(rownames = "sample") %>%
-  # arrange(Tissue,Type) %>%                  # Enter columns to sort by here
-  # as.data.frame()
-  # rownames(col_annotation) <- col_annotation$sample
   col_annotation$sample <- NULL
   
       
   # Z-scoring: scale expression data by row
-  mat2plot <- mat2plot %>% t %>% scale %>% t
+  mat2plot <- z_score(mat2plot)
 
   #Vered 24.9.2020: remove rows which contain NaN values (otherwise pheatmap throws an error)
   mat2plot <- mat2plot[complete.cases(mat2plot), ]
@@ -1087,15 +1044,11 @@ plot_expression_heatmap_wo_contrasts = function (mat2plot, EFFECTS, stats_df_int
   # heatmap column annotation
   col_annotation = col_data %>% select(all_of(EFFECTS))
   
-  # as_tibble(rownames = "sample") %>%
-  # arrange(Tissue,Type) %>%                  # Enter columns to sort by here
-  # as.data.frame()
-  # rownames(col_annotation) <- col_annotation$sample
   col_annotation$sample <- NULL
   
   
   # Z-scoring: scale expression data by row
-  mat2plot <- mat2plot %>% t %>% scale %>% t
+  mat2plot = z_score(mat2plot)
   
   #Vered 24.9.2020: remove rows which contain NaN values (otherwise pheatmap throws an error)
   mat2plot <- mat2plot[complete.cases(mat2plot), ]
@@ -1400,7 +1353,6 @@ write_all_genes_to_Excel = function (res_df) {
   grouping_header_meta <- c(2)
   
   # Remove leading Xs from sample names
-  
   res_df2write = remove_first_x_from_colnames_starting_with_xdd (res_df)
   
   res_df_formula_columns <-
@@ -1410,19 +1362,16 @@ write_all_genes_to_Excel = function (res_df) {
     which
   
   for (coli in res_df_formula_columns) {
-    # res_df2write[,coli] <- manual_cutoff_formula  
     class(res_df2write[,coli]) <- c(class(res_df2write[,coli]), "formula")
   }
   
   # Set to FALSE if there will be more additions to the workbook in further sections
   save_workbook <- TRUE
   
-  # Writing data to an excel workbook:
-  #rm(wb)
+  # Writing data to an excel workbook
   wb <- createWorkbook()
   
   # Add first sheet: cutoffs form
-  
   addWorksheet(wb, 
                sheetName = "Cutoffs", 
                gridLines = TRUE)
@@ -1441,14 +1390,12 @@ write_all_genes_to_Excel = function (res_df) {
   
   style_COs <- 
     createStyle(border = "TopBottomLeftRight",
-                # borderColour = getOption("openxlsx.borderColour", "black"),
                 borderStyle = "thick", 
                 fgFill = "yellow")
   addStyle(wb, "Cutoffs", style_COs, rows=4:6, cols=2, gridExpand = FALSE, stack = FALSE)
   
   
   # Add second sheet: results for all genes:
-  
   sheetname = "All genes"
   
   addWorksheet(wb, 
@@ -1466,8 +1413,6 @@ write_all_genes_to_Excel = function (res_df) {
   
   
   s_num_cs_round <- createStyle(numFmt = "#,##0")
-  # s <- createStyle(numFmt = "#,##0")
-  # addStyle(wb, 1, style = s, rows = 2:6, cols = 5:7, gridExpand = TRUE)
   
   addStyle(wb, 
            sheet = sheetname, 
@@ -1500,10 +1445,6 @@ write_all_genes_to_Excel = function (res_df) {
   # 1. Create style
   # 2. Add style to location
   # Creating `colorscheme` with background colors and appropriate text color, based on luminence (brightness)
-  # colorscheme <- data.frame(colnum = grouping_header,
-  #                           fgcol=brewer.pal(length(grouping_header),
-  #                                            name = "Paired"),
-  #                           stringsAsFactors = F) 
   
   mycolors = rep(brewer.pal(12, name = "Paired"),3)
   colorscheme <- data.frame(colnum = grouping_header,
@@ -1540,8 +1481,6 @@ write_all_genes_to_Excel = function (res_df) {
     
   }
   
-  #
-  
   if (save_workbook) {
     
       # Writing workbook:
@@ -1563,30 +1502,7 @@ write_DE_genes_to_Excel = function (res_df2write) {
   res_df2write_DE <- res_df2write[(!is.na(res_df2write$pass_any) & res_df2write$pass_any=="1"),]
   
   # Order of genes in heatmap.
-  #code was fixed by Vered on 29.10.2020 so diff_genes_order does not need to use row_annotation, which is an internal variable of the hierarchical clustering function
-  # diff_genes_order <- 
-  #     cbind(gene=DE_genes[pheatmap_data_DE_genes$tree_row$order],
-  #           order = seq(from=1,by=1,along.with = DE_genes)) %>% 
-  #     as_tibble()
-  # 
-  # contrasts_header_DE = c(contrasts_header,"")  
-  # grouping_header_DE <- c(grouping_header,1)  # Including 'order' column with zscores
-  # 
-  # res_df2write_DE <-
-  #     res_df2write_DE %>% 
-  #     as_tibble %>% 
-  #     left_join(y = diff_genes_order,by = c("gene"))
-  #     # filter(gene %in% pheatmap_data_DE_genes$tree_row$labels) %>% 
-  #     # slice(pheatmap_data_DE_genes$tree_row$order) %>% 
-  #     # as.data.frame 
-  
-  # Order of genes in heatmap.
-  #code was fixed by Vered on 29.10.2020 so diff_genes_order does not need to use row_annotation, which is an internal variable of the hierarchical clustering function
-  # 16.12.2020 this still caused a bug when clustering was done on top DE genes, where the total DE genes were > top DE genes.
-  # therefore on 16.12.2020 I modified the code such that the object created is called top_diff_genes_order instead of diff_genes_order
-  # and it uses gene=top_DE_genes instead of gene=DE_genes (otherwise if top_DE_genes is smaller than DE_genes, it produces messy data)
-  # this object appears also below, when creating res_df2write_De.
-  
+
   #note, I think that left join is used when adding order to res_df2write_DE and not cbind 
   #because top_DE_genes may include only part of the DE genes
   
@@ -1599,9 +1515,6 @@ write_DE_genes_to_Excel = function (res_df2write) {
     res_df2write_DE %>% 
     as_tibble %>% 
     left_join(y = top_diff_genes_order,by = c("gene"))
-  # filter(gene %in% pheatmap_data_DE_genes$tree_row$labels) %>% 
-  # slice(pheatmap_data_DE_genes$tree_row$order) %>% 
-  # as.data.frame 
   
   #add cluster number and order of DE genes according to clustering using DeSeq2 module method
 
@@ -1630,8 +1543,9 @@ write_DE_genes_to_Excel = function (res_df2write) {
       left_join(y = top_diff_genes_order2,by = c("gene"))    
   }
    
-  # Adding Z-score data:
-  zscore <- norm_log_counts %>% t %>% scale %>% t
+  # Add Z-score data
+  
+  zscore = z_score(norm_log_counts)
   colnames(zscore) <- zscore %>% colnames %>% paste0(.,".zscore")
   
   zscore <- zscore %>% as_tibble(rownames = "gene") 
@@ -1640,18 +1554,12 @@ write_DE_genes_to_Excel = function (res_df2write) {
     res_df2write_DE %>% 
     left_join(zscore,by="gene") 
   
-
-  
-  
   dim(res_df2write_DE)
   res_df2write_DE <- res_df2write_DE %>% unique()
   dim(res_df2write_DE)
   
-  
-  
   ### Output to excel
-  
-  
+ 
   # Set to FALSE if there will be more additions to the workbook in further sections
   save_workbook <- TRUE
   
@@ -1667,11 +1575,7 @@ write_DE_genes_to_Excel = function (res_df2write) {
     str_replace(pattern = "^X(\\d)",
                 replacement = "\\1")
   
-  # res_df2write_DE %>% View
-  
   # Writing data to an excel workbook:
-  # rm(wb)
-  # wb <- createWorkbook()
   
   if (results_all_with_DE) {
     wb1 = wb
@@ -1695,8 +1599,6 @@ write_DE_genes_to_Excel = function (res_df2write) {
   
   
   s_num_cs_round <- createStyle(numFmt = "#,##0")
-  # s <- createStyle(numFmt = "#,##0")
-  # addStyle(wb, 1, style = s, rows = 2:6, cols = 5:7, gridExpand = TRUE)
   
   addStyle(wb1, 
            sheet = sheetname, 
@@ -1713,7 +1615,7 @@ write_DE_genes_to_Excel = function (res_df2write) {
             rowNames = F)
   
   
-  # Adding col_data where required:
+  # Add col_data where required
   for (i in cumsum(grouping_header_DE)[grouping_header_meta_DE-1]){
     writeData(wb1, 
               sheet = sheetname, 
@@ -1729,10 +1631,6 @@ write_DE_genes_to_Excel = function (res_df2write) {
   # 1. Create style
   # 2. Add style to location
   # Creating `colorscheme` with background colors and appropriate text color, based on luminence (brightness)
-  # colorscheme <- data.frame(colnum = grouping_header_DE,
-  #                           fgcol=brewer.pal(length(grouping_header_DE),
-  #                                            name = "Paired"),
-  #                           stringsAsFactors = F) 
   
   mycolors = rep(brewer.pal(12, name = "Paired"),3)
   colorscheme <- data.frame(colnum = grouping_header_DE,
@@ -1742,8 +1640,7 @@ write_DE_genes_to_Excel = function (res_df2write) {
   colorscheme$textcol <- ifelse((as(hex2RGB(colorscheme$fgcol),"polarLUV"))@coords[,1] > 65, 
                                 yes = "dimgray",
                                 no = "white")
-  
-  
+
   
   for (i in 1:length(grouping_header_DE)) {
     cat(sprintf("%s of %s\n",i,length(grouping_header_DE)))
@@ -1768,8 +1665,6 @@ write_DE_genes_to_Excel = function (res_df2write) {
              gridExpand = FALSE, stack = TRUE)
     
   }
-  
-  ##
   
   if (save_workbook) {
 
@@ -1785,16 +1680,11 @@ write_DE_genes_to_Excel = function (res_df2write) {
 
 write_interaction_genes_to_Excel = function (res_df2write) {
   
-  # Get only differentially expressed:
+  # Get only genes with significant interaction
   res_df2write_DE <- res_df2write[(!is.na(res_df2write$pass.interaction) & res_df2write$pass.interaction=="interaction"),]
   
   
-  # Order of genes in heatmap.
-  #code was fixed by Vered on 29.10.2020 so diff_genes_order does not need to use row_annotation, which is an internal variable of the hierarchical clustering function
-  # 16.12.2020 this still caused a bug when clustering was done on top DE genes, where the total DE genes were > top DE genes.
-  # therefore on 16.12.2020 I modified the code such that the object created is called top_diff_genes_order instead of diff_genes_order
-  # and it uses gene=top_DE_genes instead of gene=DE_genes (otherwise if top_DE_genes is smaller than DE_genes, it produces messy data)
-  # this object appears also below, when creating res_df2write_De.
+  # Order of genes in heatmap
   
   top_diff_genes_order <- 
     cbind(gene=top_DE_genes_interaction[pheatmap_data_interaction_genes$tree_row$order],
@@ -1805,12 +1695,9 @@ write_interaction_genes_to_Excel = function (res_df2write) {
     res_df2write_DE %>% 
     as_tibble %>% 
     left_join(y = top_diff_genes_order,by = c("gene"))
-  # filter(gene %in% pheatmap_data_DE_genes$tree_row$labels) %>% 
-  # slice(pheatmap_data_DE_genes$tree_row$order) %>% 
-  # as.data.frame 
   
-  # Adding Z-score data:
-  zscore <- norm_log_counts %>% t %>% scale %>% t
+  # Adding Z-score data
+  zscore = z_score(norm_log_counts)
   colnames(zscore) <- zscore %>% colnames %>% paste0(.,".zscore")
   
   zscore <- zscore %>% as_tibble(rownames = "gene") 
@@ -1823,10 +1710,7 @@ write_interaction_genes_to_Excel = function (res_df2write) {
   res_df2write_DE <- res_df2write_DE %>% unique()
   dim(res_df2write_DE)
   
-  
-  
   ### Output to excel
-  
   
   # Set to FALSE if there will be more additions to the workbook in further sections
   save_workbook <- TRUE
@@ -1835,7 +1719,6 @@ write_interaction_genes_to_Excel = function (res_df2write) {
   
   grouping_header_meta_DE <- c(2,length(grouping_header_DE))
   
-  
   # Remove leading Xs from sample names
   names(res_df2write_DE) <- 
     res_df2write_DE %>% 
@@ -1843,27 +1726,21 @@ write_interaction_genes_to_Excel = function (res_df2write) {
     str_replace(pattern = "^X(\\d)",
                 replacement = "\\1")
   
-  # res_df2write_DE %>% View
-  
-  # Writing data to an excel workbook:
-  # rm(wb)
-  # wb <- createWorkbook()
-  
+  # Writing data to an excel workbook
   if (results_all_with_DE) {
     wb1 = wb
   } else {
     wb1 = createWorkbook()
   }
   
-  # Add worksheet and data:
+  # Add worksheet and data
   addWorksheet(wb1, 
                sheetName = sheetname, 
                gridLines = TRUE)
   
-  
   writeDataTable(wb1, 
                  sheet = sheetname, 
-                 x = res_df2write_DE ,     #%>% head(n=2150),
+                 x = res_df2write_DE ,
                  startRow = metadata_rows+1,
                  colNames = TRUE,
                  rowNames = FALSE,
@@ -1871,8 +1748,6 @@ write_interaction_genes_to_Excel = function (res_df2write) {
   
   
   s_num_cs_round <- createStyle(numFmt = "#,##0")
-  # s <- createStyle(numFmt = "#,##0")
-  # addStyle(wb, 1, style = s, rows = 2:6, cols = 5:7, gridExpand = TRUE)
   
   addStyle(wb1, 
            sheet = sheetname, 
@@ -1900,15 +1775,9 @@ write_interaction_genes_to_Excel = function (res_df2write) {
               rowNames = TRUE)
   }
   
-  
-  #
   # 1. Create style
   # 2. Add style to location
   # Creating `colorscheme` with background colors and appropriate text color, based on luminence (brightness)
-  # colorscheme <- data.frame(colnum = grouping_header_DE,
-  #                           fgcol=brewer.pal(length(grouping_header_DE),
-  #                                            name = "Paired"),
-  #                           stringsAsFactors = F) 
   
   mycolors = rep(brewer.pal(12, name = "Paired"),3)
   colorscheme <- data.frame(colnum = grouping_header_DE,
@@ -1918,8 +1787,6 @@ write_interaction_genes_to_Excel = function (res_df2write) {
   colorscheme$textcol <- ifelse((as(hex2RGB(colorscheme$fgcol),"polarLUV"))@coords[,1] > 65, 
                                 yes = "dimgray",
                                 no = "white")
-  
-  
   
   for (i in 1:length(grouping_header_DE)) {
     cat(sprintf("%s of %s\n",i,length(grouping_header_DE)))
@@ -1945,8 +1812,6 @@ write_interaction_genes_to_Excel = function (res_df2write) {
     
   }
   
-  ##
-  
   if (save_workbook) {
     
 
@@ -1954,9 +1819,7 @@ write_interaction_genes_to_Excel = function (res_df2write) {
       saveWorkbook(wb1, 
                    file = final_results_Interaction_file, 
                    overwrite = TRUE) ## save to working directory
-    
   }
-  
   
 }
 
@@ -1965,13 +1828,7 @@ write_combined_genes_to_Excel = function (res_df2write) {
   # Get only differentially expressed:
   res_df2write_DE <- res_df2write[(!is.na(res_df2write$pass_combined) & res_df2write$pass_combined=="1"),]
   
-  
-  # Order of genes in heatmap.
-  #code was fixed by Vered on 29.10.2020 so diff_genes_order does not need to use row_annotation, which is an internal variable of the hierarchical clustering function
-  # 16.12.2020 this still caused a bug when clustering was done on top DE genes, where the total DE genes were > top DE genes.
-  # therefore on 16.12.2020 I modified the code such that the object created is called top_diff_genes_order instead of diff_genes_order
-  # and it uses gene=top_DE_genes instead of gene=DE_genes (otherwise if top_DE_genes is smaller than DE_genes, it produces messy data)
-  # this object appears also below, when creating res_df2write_De.
+  # Order of genes in heatmap
   
   top_diff_genes_order <- 
     cbind(gene=top_DE_genes_combined[pheatmap_data_combined_genes$tree_row$order],
@@ -1982,12 +1839,9 @@ write_combined_genes_to_Excel = function (res_df2write) {
     res_df2write_DE %>% 
     as_tibble %>% 
     left_join(y = top_diff_genes_order,by = c("gene"))
-  # filter(gene %in% pheatmap_data_DE_genes$tree_row$labels) %>% 
-  # slice(pheatmap_data_DE_genes$tree_row$order) %>% 
-  # as.data.frame 
   
-  # Adding Z-score data:
-  zscore <- norm_log_counts %>% t %>% scale %>% t
+  # Adding Z-score data
+  zscore = z_score(norm_log_counts)
   colnames(zscore) <- zscore %>% colnames %>% paste0(.,".zscore")
   
   zscore <- zscore %>% as_tibble(rownames = "gene") 
@@ -1995,16 +1849,13 @@ write_combined_genes_to_Excel = function (res_df2write) {
   res_df2write_DE <- 
     res_df2write_DE %>% 
     left_join(zscore,by="gene") 
-  
+
   
   dim(res_df2write_DE)
   res_df2write_DE <- res_df2write_DE %>% unique()
   dim(res_df2write_DE)
   
-  
-  
   ### Output to excel
-  
   
   # Set to FALSE if there will be more additions to the workbook in further sections
   save_workbook <- TRUE
@@ -2021,12 +1872,6 @@ write_combined_genes_to_Excel = function (res_df2write) {
     str_replace(pattern = "^X(\\d)",
                 replacement = "\\1")
   
-  # res_df2write_DE %>% View
-  
-  # Writing data to an excel workbook:
-  # rm(wb)
-  # wb <- createWorkbook()
-  
   if (results_all_with_DE) {
     wb1 = wb
   } else {
@@ -2038,10 +1883,9 @@ write_combined_genes_to_Excel = function (res_df2write) {
                sheetName = sheetname, 
                gridLines = TRUE)
   
-  
   writeDataTable(wb1, 
                  sheet = sheetname, 
-                 x = res_df2write_DE ,     #%>% head(n=2150),
+                 x = res_df2write_DE,
                  startRow = metadata_rows+1,
                  colNames = TRUE,
                  rowNames = FALSE,
@@ -2049,8 +1893,6 @@ write_combined_genes_to_Excel = function (res_df2write) {
   
   
   s_num_cs_round <- createStyle(numFmt = "#,##0")
-  # s <- createStyle(numFmt = "#,##0")
-  # addStyle(wb, 1, style = s, rows = 2:6, cols = 5:7, gridExpand = TRUE)
   
   addStyle(wb1, 
            sheet = sheetname, 
@@ -2066,8 +1908,7 @@ write_combined_genes_to_Excel = function (res_df2write) {
             colNames = F,
             rowNames = F)
   
-  
-  # Adding col_data where required:
+  # Add col_data where required
   for (i in cumsum(grouping_header_DE)[grouping_header_meta_DE-1]){
     writeData(wb1, 
               sheet = sheetname, 
@@ -2078,15 +1919,10 @@ write_combined_genes_to_Excel = function (res_df2write) {
               rowNames = TRUE)
   }
   
-  
-  #
+
   # 1. Create style
   # 2. Add style to location
   # Creating `colorscheme` with background colors and appropriate text color, based on luminence (brightness)
-  # colorscheme <- data.frame(colnum = grouping_header_DE,
-  #                           fgcol=brewer.pal(length(grouping_header_DE),
-  #                                            name = "Paired"),
-  #                           stringsAsFactors = F) 
   
   mycolors = rep(brewer.pal(12, name = "Paired"),3)
   colorscheme <- data.frame(colnum = grouping_header_DE,
@@ -2096,12 +1932,11 @@ write_combined_genes_to_Excel = function (res_df2write) {
   colorscheme$textcol <- ifelse((as(hex2RGB(colorscheme$fgcol),"polarLUV"))@coords[,1] > 65, 
                                 yes = "dimgray",
                                 no = "white")
-  
-  
+
   
   for (i in 1:length(grouping_header_DE)) {
     cat(sprintf("%s of %s\n",i,length(grouping_header_DE)))
-    # Add title color:
+    # Add title color
     hs1 <- createStyle(fgFill = colorscheme$fgcol[i], 
                        fontColour = colorscheme$textcol[i])
     addStyle(wb1, 
@@ -2110,7 +1945,7 @@ write_combined_genes_to_Excel = function (res_df2write) {
              rows = metadata_rows+1, 
              cols = ifelse(i==1,1,cumsum(grouping_header_DE)[i-1]+1):cumsum(grouping_header_DE)[i], 
              gridExpand = FALSE, stack = TRUE)
-    # Add group separator:
+    # Add group separator
     hs2 <- createStyle(border = "Right",
                        borderColour = "black",
                        borderStyle = "thick")
@@ -2123,94 +1958,16 @@ write_combined_genes_to_Excel = function (res_df2write) {
     
   }
   
-  ##
-  
   if (save_workbook) {
-    
-
       print(sprintf("Writing file: %s", final_results_Combined_file))
       saveWorkbook(wb1, 
                    file = final_results_Combined_file, 
                    overwrite = TRUE) ## save to working directory
-    
   }
-  
-  
 }
-add_column_description_tab = function (wb, grouping_header, contrasts_data, incl_clust_results=TRUE, file_name) {
-  
-  t1 <- data.frame(from=c(1,1+cumsum(grouping_header)[-length(grouping_header)]), 
-                   to=cumsum(grouping_header))
-  
-  t1$Columns <-
-    apply(t1,MARGIN = 1,function(x) {
-      return(list(from=paste0(LETTERS[c((x[1]-1) %/% length(LETTERS),
-                                        ((x[1]-1) %% length(LETTERS))+1)],collapse = ""),
-                  to = paste0(LETTERS[c((x[2]-1) %/% length(LETTERS),
-                                        ((x[2]-1) %% length(LETTERS))+1)],collapse = "")) %>% unlist %>% paste0(collapse = ":")
-      )})
-  
-  contrast_names_desc = paste0("Test results for comparison: ",contrasts_data$Contrast_name)
-  
-  descriptions = c("Gene ID",
-                   "Normalized counts", 
-                   contrast_names_desc,
-                   "1 if any test passed cutoffs", 
-                   "Trinotate annotation")
-  
-  if (incl_clust_results) {
-    descriptions = c(descriptions,
-                     "Gene order in the hierarchical clustering", 
-                     paste0 ("Z-scored ", NORM_METHOD, " data, for heatmap coloring"))
-  }
-  
-  t1$Description = descriptions
-  
-  sheetname <-"Column Description"
-  addWorksheet(wb, 
-               sheetName = sheetname, 
-               gridLines = TRUE)
-  
-  
-  writeData(wb, 
-            sheet = sheetname, 
-            x = t1[,c("Columns","Description"),drop=F],
-            startRow = 1,
-            colNames = T,
-            rowNames = F)
-  
-  saveWorkbook(wb, 
-               file = file_name, 
-               overwrite = TRUE) ## save to working directory
-  
-  
-}
+
 
 ##### Enrichment analysis #####
-
-create_gene2kegg <- function(Annotation,useKO=F){
-  
-  #function from Liron's .Rmd file. I have not yet tested it
-  
-  kegg_id=''
-  if (('KEGG' %in% stringr::str_to_upper(colnames(Annotation))) & (useKO==F) ){
-    kegg_id =colnames(Annotation)[which('KEGG' == stringr::str_to_upper(colnames(Annotation)))[1]]
-  }else{
-    if ('KO' %in% stringr::str_to_upper(colnames(Annotation))){
-      kegg_id =colnames(Annotation)[which('KO' == stringr::str_to_upper(colnames(Annotation)))[1]]
-    }
-  }
-  if (kegg_id!=''){
-    Annotation2USE=Annotation
-    Annotation2USE['row.names'] = row.names(Annotation2USE)
-    gene2Kegg = convert_agregate(Annotation2USE,'row.names',kegg_id,"/")
-    colnames(gene2Kegg) = c('Gene','Kegg')
-    info = KEGGREST::keggList(gene2Kegg$Kegg)
-    kegg2names = data.frame(genes = names(info),info=info)
-    return(c(gene2Kegg,kegg2names))
-  }
-  return(c('',''))
-}
 
 Filter_Pathways_By_Taxa <- function(taxon){
   ko_paths_names_all = KEGGREST::keggList("pathway", "ko")
@@ -2233,33 +1990,6 @@ Filter_Pathways_By_Taxa <- function(taxon){
 
 Clusters_Enrichment_Test=function(outDir,clusters,TERM2NAME,TERM2GENE,file_name,Type,pAdjustMethod='fdr',pvalueCutoff=0.05,gene2ko=FALSE,maxCategory=1000){
   
-  #hard coded arguments for testing of GO enrichment
-  # outDir =  opt$outDir
-  # clusters = clusters
-  # TERM2NAME = GO2name
-  # TERM2GENE = GO2gene
-  # file_name = paste(GOType,'_GO_Enrichment_of_Clusters',sep="_")
-  # Type = "GO"
-  # pAdjustMethod='fdr'
-  # pvalueCutoff=0.05
-  # gene2ko=FALSE
-  # maxCategory=100
-  
-  #hard coded arguments for testing of KEGG enrichment
-  
-  # outDir = paste0(enrichment_results_dir, "/test")
-  # clusters = clusters
-  # TERM2NAME = ORGANISM_Pathway2name_
-  # TERM2GENE = ORGANISM_Pathway2gene_
-  # file_name = paste(ORGANISM,'KEGG_Enrichment_Analysis_of_Clusters',sep="_")
-  # Type = "KEGG"
-  # pAdjustMethod='fdr'
-  # pvalueCutoff=0.05
-  # gene2ko=FALSE
-  # maxCategory=20
-  
-  
-  
   #start
   
   allRes=list()
@@ -2267,7 +1997,6 @@ Clusters_Enrichment_Test=function(outDir,clusters,TERM2NAME,TERM2GENE,file_name,
   cluster_names=list()
   count=1
   for (i in sort(unique(clusters))){
-    #clusters,num,TERM2NAME,TERM2GENE,pAdjustMethod='fdr',pvalueCutoff=0.05
     temp=General_Enrichment_Test(clusters,c(i),TERM2NAME,TERM2GENE,pAdjustMethod,pvalueCutoff )
     if (length(temp)>0){
         allRes[[count]]<-temp
@@ -2324,31 +2053,15 @@ Clusters_Enrichment_Test=function(outDir,clusters,TERM2NAME,TERM2GENE,file_name,
    if (dim(allRes@compareClusterResult)[1]>0){
      x=enrichplot::dotplot(allRes,showCategory=maxCategory,font.size=font.size)
      ggplot2::ggsave(filename = file.path(outDir,paste(file_name,".pdf",sep='',collapse = "")),dpi = 600,device = "pdf",width = 20,height = 20)
-     #grid::grid.newpage()
      #Vered 26.7.2023 - added enrichment table and enrichment_table_simplify for delivery to RShiny
-     #return(list(original_allRes,list(htmltools::h4(paste(unlist(stringi::stri_split(str = file_name,fixed='_')),collapse = " ")),plotly::ggplotly(x),Simplify_title)))
      return(list(original_allRes,list(htmltools::h4(paste(unlist(stringi::stri_split(str = file_name,fixed='_')),collapse = " ")),plotly::ggplotly(x),Simplify_title), enrich_tables))
    }
   #Vered 26.7.2023 - added enrichment table and enrichment_table_simplify for delivery to RShiny
-  #return(list(original_allRes,list(htmltools::h4(paste(unlist(stringi::stri_split(str = file_name,fixed='_')),collapse = " ")))))
   return(list(original_allRes,list(htmltools::h4(paste(unlist(stringi::stri_split(str = file_name,fixed='_')),collapse = " "))), enrich_tables))															
 }
 
 Contrasts_Enrichment_Test=function(outDir,DE_genes_lists,TERM2NAME,TERM2GENE,file_name,Type,pAdjustMethod='fdr',pvalueCutoff=0.05,gene2ko=FALSE,maxCategory=1000){
 
-  #hard coded arguments for testing of KEGG enrichment
-  
-  # outDir = paste0(enrichment_results_dir, "/test")
-  # clusters = clusters
-  # TERM2NAME = ORGANISM_Pathway2name_
-  # TERM2GENE = ORGANISM_Pathway2gene_
-  # file_name = paste(ORGANISM,'KEGG_Enrichment_Analysis_of_Clusters',sep="_")
-  # Type = "KEGG"
-  # pAdjustMethod='fdr'
-  # pvalueCutoff=0.05
-  # gene2ko=FALSE
-  # maxCategory=20
-  
   #start
   
   allRes=list()
@@ -2406,7 +2119,6 @@ Contrasts_Enrichment_Test=function(outDir,DE_genes_lists,TERM2NAME,TERM2GENE,fil
   if (dim(allRes@compareClusterResult)[1]>0){
     x=enrichplot::dotplot(allRes,showCategory=maxCategory,font.size=font.size)
     ggplot2::ggsave(filename = file.path(outDir,paste(file_name,".pdf",sep='',collapse = "")),dpi = 600,device = "pdf",width = 20,height = 20)
-    #grid::grid.newpage()
     return(list(original_allRes,list(htmltools::h4(paste(unlist(stringi::stri_split(str = file_name,fixed='_')),collapse = " ")),plotly::ggplotly(x),Simplify_title)))
   }
   return(list(original_allRes,list(htmltools::h4(paste(unlist(stringi::stri_split(str = file_name,fixed='_')),collapse = " ")))))
@@ -2429,8 +2141,6 @@ process_clusterprofiler_results_table = function(clusterprofiler_results_table) 
 }
 
 General_Enrichment_Test<-function(clusters,num,TERM2NAME,TERM2GENE,pAdjustMethod='fdr',pvalueCutoff=0.05){
-
-  #clusters,c(i),TERM2NAME,TERM2GENE,pAdjustMethod,pvalueCutoff
   
   res_red=unique(TERM2GENE[,2])
   Genes=res_red[res_red  %in% names(clusters[clusters %in% num])]
@@ -2448,9 +2158,7 @@ General_Enrichment_Test<-function(clusters,num,TERM2NAME,TERM2GENE,pAdjustMethod
   return(res)
 }
 
-General_Enrichment_Test1<-function(gene_list,TERM2NAME,TERM2GENE,pAdjustMethod='fdr',pvalueCutoff=0.05){  #Vered 13.8.2023
-  
-  #clusters,c(i),TERM2NAME,TERM2GENE,pAdjustMethod,pvalueCutoff
+General_Enrichment_Test1<-function(gene_list,TERM2NAME,TERM2GENE,pAdjustMethod='fdr',pvalueCutoff=0.05){  
   
   res_red=unique(TERM2GENE[,2])
   Genes = intersect(gene_list, res_red)
@@ -2469,16 +2177,6 @@ General_Enrichment_Test1<-function(gene_list,TERM2NAME,TERM2GENE,pAdjustMethod='
 }
 
 plot_shared_genes<-function(allRes,outDir,file_name){
-  
-  #hard coded arguments for testing GO enrichment
-  # allRes = allRes[[1]]@compareClusterResult
-  # outDir = opt$outDir
-  # file_name = paste(GOType,'_GO_Enrichment_of_Clusters')
-  
-  #hard coded arguments for testing KEGG enrichment
-  # allRes = allRes[[1]]@compareClusterResult
-  # outDir = opt$outDir
-  # file_name = 'KEGG_Enrichment_Analysis_of_Clusters'
   
   heatmaps=list()
   if (length(allRes)>1){
@@ -2555,8 +2253,8 @@ plot_shared_genes<-function(allRes,outDir,file_name){
           }
         }
         
-        rownames(mat) = TEMP$Description   #did not use it in KEGG because description is missiong
-        colnames(mat) = TEMP$Description   #did not use it in KEGG because description is missing
+        rownames(mat) = TEMP$Description   
+        colnames(mat) = TEMP$Description   
         if (length(unique(as.vector(mat)))>1 ){
           color=colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name ="RdYlBu") ))( 100)
           mybreaks=seq(0,1,0.01)
@@ -2619,7 +2317,7 @@ plot_shared_genes<-function(allRes,outDir,file_name){
 
 generat_urls<-function(allRes,gene2ko){
   
-  #not sure this function is necessary
+  #not sure this function is necessary (but it is used in other functions above)
   
   temp_table=allRes@compareClusterResult
   temp_table$URL=apply(X = temp_table,MARGIN = 1,FUN = function(x) paste(c("http://www.kegg.jp/kegg-bin/show_pathway?",stringi::stri_replace_all(str = x["ID"],replacement = "",regex = "path:",collapse = ""),"/", paste(sapply( unlist(stringi::stri_split(str = x["geneID"],regex = "/")),FUN = function(x) gene2ko[gene2ko$V1==x,"V2"]),collapse = "+") ),collapse = ""))
@@ -2654,6 +2352,10 @@ remove_first_x_from_colnames_starting_with_xdd = function (x) {
 make_data_frame_from_clusters = function (clusters) {  #vered Aug2023
   clusters_df = data.frame(gene=names(clusters), cluster=clusters)
   return (clusters_df)
+}
+
+z_score = function (expr_matrix) {
+  expr_matrix %>% t %>% scale %>% t
 }
 
 make_list_from_clusters = function (clusters) {
