@@ -1,0 +1,529 @@
+---
+author: "Vered Chalifa-Caspi"
+date: "17.5.2023"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+
+---
+# About
+
+Script taken and modified from DeSeq2 module written by Liron Levin (levinl@bgu.ac.il),
+to retrieve annotation from Ensembl (given an organism name) and from KEGG
+
+
+# Load libraries
+
+```{r setup, include=FALSE}
+
+library('AnnotationHub')
+library('ensembldb')
+library('biomaRt')
+library('clusterProfiler')
+library("KEGGREST") 
+library("stringr")
+library("tibble")
+library("dplyr")
+
+```
+
+# Parameters
+
+```{r parameters}
+
+opt_Species = "Mus Musculus"
+opt_outDir  = "Func_annot_data"
+
+# Get all KEGG mouse genes and their ensembl ID
+# http://rest.genome.jp/link/ensembl/mmu
+# KEGG Rest instructions:
+# https://www.genome.jp/linkdb/linkdb_api.html
+# or use the web page:
+# https://www.genome.jp/linkdb/
+  
+kegg2ensembl_file_from_kegg = "Mouse_gene2ensembl.txt" 
+
+```
+
+# Functions
+
+```{r parameters}
+
+convert_agregate<-function(df,index,subject,sep){
+  l1=apply(X = df,MARGIN = 1,FUN = function(x) {
+    m=as.data.frame( x = stringi::stri_split(str = x[subject],regex = sep),col.names = c("v1"))
+    m["index"]<-x[index]
+    return(m[c("index","v1")])
+  })
+  return(do.call(what = "rbind",args = l1) )
+}
+```
+# Start
+
+```{r misc}
+
+#start
+
+Annotation_flag = ''
+keggConv_id_type = "uniprot"
+Annotation_file=file.path(opt_outDir,paste('Annotation','tab', sep = '.'))
+
+GO2gene_MF = NA
+GO2name_MF = NA
+
+GO2gene_BP = NA
+GO2name_BP = NA
+
+GO2gene_CC = NA
+GO2name_CC = NA
+
+```
+
+#AnnotationHub
+
+```{r annotation hub}
+
+#gene_id_field options from Hub_columns:
+#"ACCNUM", "ENSEMBL", "ENSEMBLPROT", "ENSEMBLTRANS", "ENTREZID", "REFSEQ", "SYMBOL", "UNIPROT"     
+gene_id_field = "ENSEMBL"
+
+cache = file.path(opt_outDir,'cache')
+dir.create(cache, showWarnings = T)
+ah  = AnnotationHub(cache = cache )  #takes some time
+Hub = query(ah, c('OrgDb'))
+species = unique(Hub$species)  #species list from the hub
+
+dataset = species[(sapply(X = species,FUN = function(X) stringi::stri_startswith(fixed =  stringi::stri_trans_tolower(opt_Species),str =  stringi::stri_trans_tolower(X)    )))]
+if (length(dataset) > 0) {
+  print (paste("dataset: ", dataset))
+  dataset = dataset[1]
+  print('Found Species:')
+  print(dataset)
+  Hub = query(ah, c('OrgDb',dataset))
+  Hub = Hub[[length(Hub$title)]]  #takes some time
+  Hub_columns = columns(Hub)
+  fields2use  = c('GENENAME','SYMBOL','PFAM') 
+  print('Cloumns in DB:')
+  print(Hub_columns)
+  
+  if (gene_id_field %in% columns(Hub)){
+    
+    Genes  = keys(Hub, keytype=gene_id_field) #retrieve list of all ensembl genes
+    print ("No. of retrieved genes:")
+    print (length(Genes))
+    
+    Annotation  = AnnotationDbi::select(Hub,                                       #Vered: this is BAD!!
+                                        keys = as.character(Genes),
+                                        columns=intersect(Hub_columns, fields2use),
+                                        keytype=gene_id_field)
+    print(dim(Annotation))
+
+    if (('GOALL' %in% Hub_columns) & ('GO' %in% Hub_columns) ){
+      GO_field2use = c('GOALL')
+    }else{
+      GO_field2use = c('GO')
+    }
+    
+    GO_Annotation = AnnotationDbi::select(Hub,                                       
+                                        keys = as.character(Genes),
+                                        columns=intersect(Hub_columns, GO_field2use),
+                                        keytype=gene_id_field)
+    
+    if ('GO' %in% Hub_columns) {
+      colnames(GO_Annotation)['GO'    == colnames(GO_Annotation)] = 'go_id'
+    }
+    if ('GOALL' %in% Hub_columns) {
+      colnames(GO_Annotation)['GOALL' == colnames(GO_Annotation)] = 'go_id'
+    }
+    
+    if ('UNIPROT' %in% Hub_columns) {
+      Ensembl2converter = AnnotationDbi::select(Hub,
+                                              keys = as.character(Genes),
+                                              columns=intersect(Hub_columns, c('UNIPROT')),
+                                              keytype=gene_id_field)
+      colnames(Ensembl2converter) = c(gene_id_field,keggConv_id_type)
+      Ensembl2converter = Ensembl2converter[!is.na(Ensembl2converter[,keggConv_id_type]),]
+    }else if ('GID' %in% Hub_columns){
+      Ensembl2converter = AnnotationDbi::select(Hub,
+                                              keys = as.character(Genes),
+                                              columns=intersect(Hub_columns, c('GID')),
+                                              keytype=gene_id_field)
+      keggConv_id_type = 'ncbi-geneid'
+      colnames(Ensembl2converter) = c(gene_id_field,keggConv_id_type)
+      Ensembl2converter = Ensembl2converter[!is.na(Ensembl2converter[,keggConv_id_type]),]
+    }
+    opt_Species      = dataset
+    Annotation_flag  = 'ensembl'
+    
+  }else{
+    print('Could not find your Gene Type ID, These are the available options:')
+    print(columns(Hub))
+  }
+} else {
+  print ("length(dataset) is not > 0")
+}
+unlink(cache,recursive=TRUE)
+
+#for backup (Vered)
+
+AnnotationHub_Annotation = Annotation
+AnnotationHub_GO_Annotation = GO_Annotation
+AnnotationHub_Ensembl2converter = Ensembl2converter
+
+```
+
+#Ensembl BioMart (alternative to AnnotationHub)
+
+```{r biomart}
+
+#In Liron's DeSeq2 module, this part is run only if Annotation is empty
+#(i.e. if nothing was retrieved from the Annotation Hub)
+
+#for KEGG annotation - it gives bad results!! (Vered 19.5.2023)
+#for GO - I don't know
+
+#therefore I suggest to only use it for Ensembl information (e.g. gene type)
+
+gene_id_field = "ensembl_gene_id"
+
+biomart = "ensembl"
+host = "https://www.ensembl.org"
+mirror = "useast"
+
+Test_host<- biomaRt::listMarts(host=host)
+
+M = biomaRt::useMart(biomart = biomart, host = host)
+ensembl_dataset = biomaRt::listDatasets(M)
+ensembl_dataset
+
+dataset = 'mmusculus_gene_ensembl'  #set this after choosing your organism from the presented ensembl_dataset
+
+if (biomart == 'plants_mart'){
+  ensembl <- biomaRt::useEnsemblGenomes(biomart=biomart, dataset=as.character(dataset))
+} else{
+  ensembl <-  biomaRt::useEnsembl(biomart=biomart, dataset=as.character(dataset),host = host,mirror=mirror)
+}
+
+#retrieve GO annotation
+
+GO_Annotation = c()
+
+genes <- getBM(attributes = gene_id_field, mart = ensembl)
+attributes=c( gene_id_field,
+              'go_id',
+              'namespace_1003')
+
+#genes is the list of all organism genes in ensembl
+#here we split it to sets of 10,000 gene each 
+
+for (subset_genes in split(genes[,gene_id_field], ceiling(seq_along(genes[,gene_id_field] )/10000))){
+  
+  getBM_count    = 1
+  max_getBM_trys = 100
+  while (getBM_count<max_getBM_trys){
+    print(getBM_count)
+    Subset_Annotation = try(getBM(values = subset_genes,
+                           filters = gene_id_field,
+                           attributes = attributes,
+                           uniqueRows = TRUE,
+                           mart = ensembl),silent = T)
+    
+    if (!inherits(Subset_Annotation,"try-error")){
+      GO_Annotation = rbind(GO_Annotation,Subset_Annotation)
+      getBM_count = max_getBM_trys
+    }
+    getBM_count = getBM_count + 1
+  }
+  if (inherits(Subset_Annotation,"try-error")){
+    stop()
+  }
+}
+
+GO_Annotation$ontology = GO_Annotation$namespace_1003
+GO_Annotation$namespace_1003 = NULL
+
+#retrieve gene details (stored in 'Annotation')
+
+getBM_count=1
+max_getBM_trys = 20
+
+while (getBM_count<max_getBM_trys){
+  print(getBM_count)
+  Annotation = try(getBM(attributes = c(gene_id_field,
+                                     'external_gene_name',
+                                     'gene_biotype',
+                                     'description'
+  ),
+  uniqueRows = TRUE,
+  mart = ensembl),silent = T)
+  if (!inherits(Annotation,"try-error")){
+    getBM_count = max_getBM_trys
+  }
+  getBM_count = getBM_count + 1  
+}
+
+if (inherits(Annotation,"try-error")){
+  stop()
+}
+
+#merge gene annotation with go annotation
+
+#Total_Annotation=merge.data.frame(x = GO_Annotation,y = Annotation,by = gene_id_field,all = T)  
+#Annotation = Total_Annotation
+
+
+#retrieve uniprot per ensembl ID (necessary for KEGG annotation)
+
+Ensembl2converter = getBM(attributes=c(gene_id_field,
+                                     'uniprotsptrembl'),
+                        mart = ensembl)
+
+colnames(Ensembl2converter) = c(gene_id_field,keggConv_id_type)
+Annotation_flag = 'ensembl'
+
+```
+
+# KEGG
+
+```{r KEGG}
+
+#important note (4.6.2023) I have attempted to revise this part, but in the middle of the work
+#I decided to do the KEGG stuff in Perl. Therefore this part is a work stopped in the middle
+
+KEGG_flag          = FALSE
+ORGANISM_KEGG_flag = FALSE
+KEGG_KAAS_flag     = FALSE
+GO_flag            = FALSE
+ORGANISM           = ''
+
+ORGANISMs = clusterProfiler::search_kegg_organism('')
+ORGANISMs
+
+ORGANISM  = ORGANISMs$kegg_code[(sapply(X = ORGANISMs$scientific_name,FUN = function(X) stringi::stri_startswith(fixed =  stringi::stri_replace_last(str = stringi::stri_trans_tolower(opt_Species), fixed = ' genes',replacement = ''),str =  stringi::stri_trans_tolower(X)    )))]
+print (ORGANISM)
+
+#get all kegg genes from KEGG REST
+
+kegg_genes = keggList(ORGANISM) #vector with kegg gene ID as element name and gene type as value
+kegg_genes = data.frame(kegg=names(kegg_genes), kegg_type=kegg_genes) #dataframe with columns: kegg, type
+
+#get kegg to ko and merge with kegg_genes to create the all_genes data frame
+
+KO=keggLink(ORGANISM,"ko") #vector with KO ID as element names (e.g. ko:K01057) and KEGG gene IDs as values(e.g. mmu:18786)
+KO = data.frame(kegg=KO, ko=names(KO)) #data frame with two columns: kegg, ko
+kegg_all = merge.data.frame(kegg_genes, KO, by="kegg", all=T) #data frame with three columns: kegg, uniprot, ko. Note: there are some duplicate lines (because of multipele KOs per mouse kegg ID)
+
+#get kegg to pathway and add to all_genes data frame
+
+Pathway=keggLink(ORGANISM,"pathway") #vector with KEGG pathway ID as element names and KEGG gene ID as values
+Pathway=data.frame(kegg=Pathway, pathway=names(Pathway)) #data frame with two columns: kegg, pathway
+kegg_all = merge.data.frame(kegg_all, Pathway, by="kegg", all=T)
+
+#pathway id to pathway name
+
+Pathway_info <- keggList("pathway",organism =ORGANISM) #vector with KEGG pathway ID as element names and KEGG pathway name as values
+pathway_ids = paste0("path:", names(Pathway_info))  #add "path:" before pathway ID
+Pathway_info = data.frame(pathway=pathway_ids, pathway_name=Pathway_info)
+kegg_all = merge.data.frame(kegg_all, Pathway_info, by="pathway", all=T) %>%
+  relocate(pathway, .after = ko)
+
+
+#get  kegg gene per ensembl directly from kegg
+#(file needs to be retrieved from kegg web site or from KEGG REST API for external databases. see above)
+#then, add to kegg_all data frame
+
+kegg2ensembl = read.delim(kegg2ensembl_file_from_kegg, header = F, col.names = c("kegg", "ensembl", "type"))
+kegg2ensembl = kegg2ensembl %>%
+  mutate (ensembl = str_replace(ensembl, "ensembl:", "")) %>%
+  select (-type)
+kegg_all = merge.data.frame(kegg_all, kegg2ensembl, by="kegg", all=T) %>%
+  relocate(ensembl, .after=ko)
+
+#get Kegg gene per ensembl through uniprot
+
+#kegg to uniprot
+
+kegg2up=keggConv(ORGANISM,"uniprot")  #vector with uniprot ID (e.g. up:Q544G3) as element name and kegg gene IDs (e.g. mmu:100009600) as values
+uniprot =  unlist(lapply(X =names(kegg2up) ,FUN = function(x) rev(unlist(stringi::stri_split(str = x,regex = ":")))[1])) #vector of unirot IDs after removing the up: prefix
+kegg2up = data.frame(kegg=kegg2up, uniprot=uniprot)
+
+#process ensembl2unirot generated from AnnotationHub (or ensMart)
+
+ensembl2up = Ensembl2converter %>%
+  filter(uniprot != "") %>% #filter out missing uniprot values -for uniprot it's probably not necessary
+  rename(ensembl_via_uniprot = ENSEMBL) #rename ENSEMBL column to ensembl_via_uniprot
+
+#merge ensembl2unirot with kegg2up
+
+kegg2ensembl_via_up = merge.data.frame(kegg2up, ensembl2up, by="uniprot", all.x=T) %>%
+relocate (uniprot, .after=kegg)
+out_file = paste0(opt_outDir, "/", "KEGG2Ensembl_via_uniprot.txt")
+write.table (kegg2ensembl_via_up, out_file, sep="\t", quote=F, na="", row.names=F) #this file will go to a perl script which will use it for KEGGs that do not have a direct assignment to ensembl genes, after applying additional criteria.
+
+#merge with kegg_all table
+
+kegg_all1 = merge(kegg_all, kegg2ensembl_via_up, by="kegg", all.x=T)
+kegg_all2 = rename(kegg_all1, uniprot_from_kegg = uniprot)
+
+##I reached here. Need to find a way to assign ensembl_via_uniprot to keggs which do not have direct ensembl id.
+#currently, the row duplications makes it difficult
+#also, I want to be sure that the indirect-ensembl does not have an assignment to another kegg.
+
+#merge with the big annotation table
+
+Annotation$kegg = NULL 
+Annotation = merge.data.frame(Annotation,Kegg_Annotation,by.x =gene_id_field ,by.y = gene_id_field,all.x = T)
+Annotation$pathway_info = Annotation$info
+Annotation$info = NULL
+
+```
+# Print KEGG info
+
+```{r print KEGG}
+
+#aggregate so that there is one line per gene, and multiple values are separated by "|"
+
+aggregate_by=Kegg_Annotation[gene_id_field]
+Kegg_Annotation[gene_id_field]=NULL
+Kegg_Annotation=aggregate.data.frame(x =Kegg_Annotation ,by = aggregate_by,FUN =function(x) paste(unique(na.omit(x)),sep = "|",collapse = "|"))
+
+#create ORGANISM_Pathway2gene, ORGANISM_Pathway2name tables
+
+ORGANISM_Pathway2gene=convert_agregate(Kegg_Annotation,gene_id_field,"pathway","[\\|]")
+ORGANISM_Pathway2gene=ORGANISM_Pathway2gene[ORGANISM_Pathway2gene$v1!='',]
+ORGANISM_Pathway2gene=ORGANISM_Pathway2gene[rev(colnames(ORGANISM_Pathway2gene))]
+ORGANISM_Pathway2name=Pathway_info[rev(colnames(Pathway_info))]
+ORGANISM_KEGG_flag  = TRUE
+
+write.table(ORGANISM_Pathway2name,
+            file = file.path(opt_outDir,paste('ORGANISM_Pathway2name','tab', sep = '.')) ,
+            quote = F,
+            row.names = F,
+            sep = "\t")
+
+write.table(ORGANISM_Pathway2gene,
+            file = file.path(opt_outDir,paste('ORGANISM_Pathway2gene','tab', sep = '.')) ,
+            quote = F,
+            row.names = F,
+            sep = "\t")
+```
+
+#print annotation file
+
+```{r print annotation file}
+
+Annotation1 = Annotation
+aggregate_by=Annotation1[gene_id_field]
+
+Annotation1[gene_id_field]=NULL
+Annotation1=aggregate.data.frame(x =Annotation1 ,
+                                by = aggregate_by,
+                                FUN =function(x) paste(unique(na.omit(x)),sep = "/",collapse = "/"))
+rownames(Annotation1)=unlist(Annotation1[gene_id_field])
+Annotation2<-apply(X =Annotation1,
+                  MARGIN = c(1,2),
+                  FUN =function(x) stringi::stri_replace_all(str = x,replacement = " ",regex = ",") )
+Annotation2=as.data.frame(Annotation2)
+
+
+write.table(Annotation2,
+            file = file.path(opt_outDir,paste('Annotation','tab', sep = '.')) ,
+            quote = F,
+            row.names = F,
+            sep = "\t")
+```
+# Print GO info:
+
+```{r print GO info}
+
+#Vered: need to revise the code!!
+
+# 1. GO annotation should be taken from GO_Annotation rather than from Annotation
+# 2. GO_Annotation has not been aggregated to one line per gene
+
+GO_Annotation1 = GO_Annotation
+aggregate_by=GO_Annotation1[gene_id_field]
+
+GO_Annotation1[gene_id_field]=NULL
+GO_Annotation1=aggregate.data.frame(x =GO_Annotation1 ,
+                                by = aggregate_by,
+                                FUN =function(x) paste(unique(na.omit(x)),sep = "/",collapse = "/"))
+rownames(GO_Annotation1)=unlist(GO_Annotation1[gene_id_field])
+GO_Annotation2<-apply(X =GO_Annotation1,
+                  MARGIN = c(1,2),
+                  FUN =function(x) stringi::stri_replace_all(str = x,replacement = " ",regex = ",") )
+GO_Annotation2=as.data.frame(GO_Annotation2)
+
+write.table(GO_Annotation2,
+            file = file.path(opt_outDir,paste('GO_Annotation','tab', sep = '.')) ,
+            quote = F,
+            row.names = F,
+            sep = "\t")
+
+#the code below should be simplified by using the original GO_Annotation object before aggregation
+
+GO2gene           = convert_agregate(GO_Annotation2,gene_id_field,"go_id","/")
+GO2gene           = GO2gene[GO2gene$v1!='',]
+GO2gene           = sapply(GO2gene,FUN = function(x) stringi::stri_replace_all(str = x,replacement = "",regex = " "))
+GO2gene           = GO2gene[,c("v1","index")]
+#convert GO indirect to direct GOs
+GO2gene           = clusterProfiler::buildGOmap(GO2gene)
+# annotate the GO to TERMs
+Goterm            = merge.data.frame(x= clusterProfiler::go2term(GO2gene$GO), y=clusterProfiler::go2ont(GO2gene$GO) ,by='go_id')
+Goterm            = Goterm[!duplicated.data.frame(Goterm),]
+GO2name           = merge.data.frame(x = GO2gene,y = Goterm,by.y = "go_id",by.x ="GO" ,sort = FALSE)
+
+GO2name_MF        = GO2name[GO2name$Ontology=="MF",c('GO','Term')]
+GO2name_BP        = GO2name[GO2name$Ontology=="BP",c('GO','Term')]
+GO2name_CC        = GO2name[GO2name$Ontology=="CC",c('GO','Term')]
+GO2name_MF        = GO2name_MF[!duplicated.data.frame(GO2name_MF),]
+GO2name_BP        = GO2name_BP[!duplicated.data.frame(GO2name_BP),]
+GO2name_CC        = GO2name_CC[!duplicated.data.frame(GO2name_CC),]
+
+GO2gene_MF        = GO2name[GO2name$Ontology=="MF",c('GO','Gene')]
+GO2gene_BP        = GO2name[GO2name$Ontology=="BP",c('GO','Gene')]
+GO2gene_CC        = GO2name[GO2name$Ontology=="CC",c('GO','Gene')]
+GO2gene_MF        = GO2gene_MF[!duplicated.data.frame(GO2gene_MF),]
+GO2gene_BP        = GO2gene_BP[!duplicated.data.frame(GO2gene_BP),]
+GO2gene_CC        = GO2gene_CC[!duplicated.data.frame(GO2gene_CC),]
+
+GO_flag           = TRUE
+write.table(GO2gene_MF,
+            file = file.path(opt_outDir,paste('GO2gene_MF','tab', sep = '.')) ,
+            quote = F,
+            row.names = F,
+            sep = "\t")
+
+write.table(GO2name_MF,
+            file = file.path(opt_outDir,paste('GO2name_MF','tab', sep = '.')) ,
+            quote = F,
+            row.names = F,
+            sep = "\t")
+
+
+write.table(GO2gene_BP,
+            file = file.path(opt_outDir,paste('GO2gene_BP','tab', sep = '.')) ,
+            quote = F,
+            row.names = F,
+            sep = "\t")
+
+write.table(GO2name_BP,
+            file = file.path(opt_outDir,paste('GO2name_BP','tab', sep = '.')) ,
+            quote = F,
+            row.names = F,
+            sep = "\t")
+
+write.table(GO2gene_CC,
+            file = file.path(opt_outDir,paste('GO2gene_CC','tab', sep = '.')) ,
+            quote = F,
+            row.names = F,
+            sep = "\t")
+
+write.table(GO2name_CC,
+            file = file.path(opt_outDir,paste('GO2name_CC','tab', sep = '.')) ,
+            quote = F,
+            row.names = F,
+            sep = "\t")
+```
