@@ -127,23 +127,32 @@ MAX_TERMS_IN_DOTPLOT = 30  #number of enriched terms to display in dotplot
 
 ```{r infiles}
 
-# 
-experiment_design_file   = "Experiment_design_all_wo_Young_H8.txt"
+#the three following should be prepared by the user, and are analysis-specific
 
 rsem_files_locations     = "Count_file_location_all_wo_Young_H8.txt"
 
+experiment_design_file   = "Experiment_design_all_wo_Young_H8.txt"
+
 contrasts_file           = "Contrasts_midaged.txt"
 
-annotation_file          = "mart_export.txt"  #external annotation file, will appear as first cols in the results
-#e.g. download from Ensembl/BioMart: Gene stable ID, Gene name, Gene type, Gene description
+#the following files are per organism (or per de novo transcriptome assembly in non-model organisms)
 
-functional_annot_dir     = "Func_annot_data"  #kegg data are taken from Vered Perl script. GO data and the Annotation.tab file are from the R script.
-#The perl script is located on Vered’s PC, at
-#Programming/Perl_workspace/Assaf_Rudich_03_HFD_KEGG_from_Vered_script/KEGG_2_ensembl_conversion8.pl
+#external annotation file (for organisms with a known genome, that have data in public databases such as ensembl)
+#e.g. download from Ensembl/BioMart: Gene stable ID, Gene name, Gene type, Gene description (by default the file is called "mart_export.txt")
+#or, use the data retrieved from AnnotationHub using the Retrieve_annotation.Rmd script ("Func_annot_data/Annotation.tab"), but this has not been tested yet
+#the annotation data will appear as first cols in the Excel results file
+annotation_file          = "mart_export.txt"  #or 
 
-
+#file prepared by trinotate (for non-model organisms)
 trinotate_file           = "Embryos_assembly_Tom.trino_anno_rep.xls"
 
-gene_transcript_map      = "Embryos_assembly_Tom.filtered.fasta.gene_trans_map"
+#directory with data required for enrichment analyses
+#kegg data are taken from Vered Perl script.
+#GO data and the Annotation.tab file are from the R script.
+#The perl script is located on Vered’s PC, at
+#Programming/Perl_workspace/Assaf_Rudich_03_HFD_KEGG_from_Vered_script/KEGG_2_ensembl_conversion8.pl
+functional_annot_dir     = "Func_annot_data"  
+
+
 
 ```
