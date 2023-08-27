@@ -1128,104 +1128,43 @@ if (CALC_CONTRASTS & CALC_INTERACTION) {
 
 # Enrichment analyases
 
-##Read   functional annotation data from files
+##Read functional annotation data from files
 
 ```{r read_func_annot_from_files}
 
-Annotation_file=file.path(functional_annot_dir,paste('Annotation','tab', sep = '.'))
+#KEGG
 
-if (file.exists(Annotation_file)) {
-  Annotation <- read.delim(Annotation_file, sep="\t", row.names=1,quote = "")
-  KEGG_flag          = FALSE
-  ORGANISM_KEGG_flag = FALSE
-  KEGG_KAAS_flag     = FALSE
-  GO_flag            = FALSE
-  ORGANISM           = ''
-}
+Pathway2name_file = file.path(functional_annot_dir,paste('KEGG_pathway2name','tab', sep = '.'))
+Pathway2gene_file = file.path(functional_annot_dir,paste('KEGG_pathway2gene','tab', sep = '.'))
 
-Pathway2name_file = file.path(functional_annot_dir,paste('Pathway2name','tab', sep = '.'))
-Pathway2gene_file = file.path(functional_annot_dir,paste('Pathway2gene','tab', sep = '.'))
-if ((file.exists(Pathway2name_file)) & (file.exists(Pathway2gene_file))){
-  Pathway2name = read.delim(Pathway2name_file, sep="\t", row.names=NULL)
-  Pathway2gene = read.delim(Pathway2gene_file, sep="\t", row.names=NULL)
-  KEGG_flag = TRUE
-}
+Pathway2name = read.delim(Pathway2name_file, sep="\t", row.names=NULL)
+Pathway2gene = read.delim(Pathway2gene_file, sep="\t", row.names=NULL)
 
-KASS_Pathway2name_file = file.path(functional_annot_dir,paste('KASS_Pathway2name','tab', sep = '.'))
-KASS_Pathway2gene_file = file.path(functional_annot_dir,paste('KASS_Pathway2gene','tab', sep = '.'))
-if ((file.exists(KASS_Pathway2name_file)) & (file.exists(KASS_Pathway2gene_file))){
-  KASS_Pathway2name = read.delim(KASS_Pathway2name_file, sep="\t", row.names=NULL)
-  KASS_Pathway2gene = read.delim(KASS_Pathway2gene_file, sep="\t", row.names=NULL)
-  KEGG_KAAS_flag = TRUE
-}
+#GO
 
-ORGANISM_Pathway2name_file = file.path(functional_annot_dir,paste('ORGANISM_Pathway2name','tab', sep = '.'))
-ORGANISM_Pathway2gene_file = file.path(functional_annot_dir,paste('ORGANISM_Pathway2gene','tab', sep = '.'))
-if ((file.exists(ORGANISM_Pathway2name_file)) & (file.exists(ORGANISM_Pathway2gene_file))){
-  ORGANISM_Pathway2name = read.delim(ORGANISM_Pathway2name_file, sep="\t", row.names=NULL)
-  ORGANISM_Pathway2gene = read.delim(ORGANISM_Pathway2gene_file, sep="\t", row.names=NULL)
-  ORGANISM_KEGG_flag  = TRUE
-}
-
-GO_flag = FALSE
-GO2gene_MF_file = file.path(functional_annot_dir,paste('GO2gene_MF','tab', sep = '.'))
-GO2name_MF_file = file.path(functional_annot_dir,paste('GO2name_MF','tab', sep = '.'))
 GO2gene_BP_file = file.path(functional_annot_dir,paste('GO2gene_BP','tab', sep = '.'))
 GO2name_BP_file = file.path(functional_annot_dir,paste('GO2name_BP','tab', sep = '.'))
+GO2gene_MF_file = file.path(functional_annot_dir,paste('GO2gene_MF','tab', sep = '.'))
+GO2name_MF_file = file.path(functional_annot_dir,paste('GO2name_MF','tab', sep = '.'))
 GO2gene_CC_file = file.path(functional_annot_dir,paste('GO2gene_CC','tab', sep = '.'))
 GO2name_CC_file = file.path(functional_annot_dir,paste('GO2name_CC','tab', sep = '.'))
 
-GO2gene_MF = NA
-GO2name_MF = NA
-
-GO2gene_BP = NA
-GO2name_BP = NA
-
-GO2gene_CC = NA
-GO2name_CC = NA
-
-if ((file.exists(GO2gene_BP_file)) & (file.exists(GO2name_BP_file))){
-  GO2gene_BP = read.delim(GO2gene_BP_file, sep="\t", row.names=NULL)
-  GO2name_BP = read.delim(GO2name_BP_file, sep="\t", row.names=NULL)
-  GO_flag  = TRUE
-}
-
-if ((file.exists(GO2gene_MF_file)) & (file.exists(GO2name_MF_file))){
-  GO2gene_MF = read.delim(GO2gene_MF_file, sep="\t", row.names=NULL)
-  GO2name_MF = read.delim(GO2name_MF_file, sep="\t", row.names=NULL)
-  GO_flag  = TRUE
-}
-
-if ((file.exists(GO2gene_CC_file)) & (file.exists(GO2name_CC_file))){
-  GO2gene_CC = read.delim(GO2gene_CC_file, sep="\t", row.names=NULL)
-  GO2name_CC = read.delim(GO2name_CC_file, sep="\t", row.names=NULL)
-  GO_flag  = TRUE
-}
-
-
-if (!is.na(FILTER_KEGG_PATHWAYS_BY_TAXON)){
-  if (KEGG_KAAS_flag){
-    Pathways2Filter = Filter_Pathways_By_Taxa(FILTER_KEGG_PATHWAYS_BY_TAXON)
-    KASS_Pathway2name = KASS_Pathway2name[KASS_Pathway2name[1] %in% Pathways2Filter,]
-    KASS_Pathway2gene = KASS_Pathway2gene[KASS_Pathway2gene[1] %in% Pathways2Filter,]
-    
-  } else if (KEGG_flag ) {
-    Pathways2Filter = Filter_Pathways_By_Taxa(FILTER_KEGG_PATHWAYS_BY_TAXON)
-    Pathway2name = Pathway2name[Pathway2name[1] %in% Pathways2Filter,]
-    Pathway2gene = Pathway2gene[Pathway2gene[1] %in% Pathways2Filter,]
-  }
-}
+GO2gene_BP = read.delim(GO2gene_BP_file, sep="\t", row.names=NULL)
+GO2name_BP = read.delim(GO2name_BP_file, sep="\t", row.names=NULL)
+GO2gene_MF = read.delim(GO2gene_MF_file, sep="\t", row.names=NULL)
+GO2name_MF = read.delim(GO2name_MF_file, sep="\t", row.names=NULL)
+GO2gene_CC = read.delim(GO2gene_CC_file, sep="\t", row.names=NULL)
+GO2name_CC = read.delim(GO2name_CC_file, sep="\t", row.names=NULL)
 
 ```
 ## Other preparations
 
 ```{r enrichment preparations}
 #Initialize data structure to hold enrichment result tables, to deliver to RShiny
-
 enrichment_tables = list()
+
 #Initialize a list to hold all plots created by the enrichment analyses
 #(not sure it is necessary, but may be used if we wish to create one report file with all plots)
-
 main_plot_list  = list() 
 
 ```
@@ -1239,8 +1178,6 @@ main_plot_list  = list()
 GO_TYPES = c('BP', 'MF', 'CC')  # c('BP', 'MF', 'CC') or part of it
 
 for (GOType in GO_TYPES){
-  GO2gene = NA
-  GO2name = NA
   if (GOType == 'BP'){
     GO2gene = GO2gene_BP
     GO2name = GO2name_BP
@@ -1249,7 +1186,6 @@ for (GOType in GO_TYPES){
     GO2gene = GO2gene_MF
     GO2name = GO2name_MF
   }
-  
   if (GOType == 'CC'){
     GO2gene = GO2gene_CC
     GO2name = GO2name_CC
@@ -1289,14 +1225,14 @@ term_dir = sprintf("%s/KEGG",enrichment_results_dir)
 
 #run enrichment tests
 #per cluster
-allRes  <- Clusters_Enrichment_Test(term_dir,clusters,ORGANISM_Pathway2name,ORGANISM_Pathway2gene,'_KEGG_Enrichment_Analysis_of_Clusters', "KEGG",pAdjustMethod=ENRICHMENT_PADJ_METHOD,pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
+allRes  <- Clusters_Enrichment_Test(term_dir,clusters,Pathway2name,Pathway2gene,'KEGG_Enrichment_Analysis_of_Clusters', "KEGG",pAdjustMethod=ENRICHMENT_PADJ_METHOD,pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
 main_plot_list <- c(main_plot_list ,list(allRes[[2]]) )
 
 # for delivery to RShiny
 enrichment_tables$"KEGG" = allRes[[3]]
 
 #per contrast
-allRes_contrasts = Contrasts_Enrichment_Test(term_dir, gene_lists$contrasts, ORGANISM_Pathway2name_, ORGANISM_Pathway2gene, paste(ORGANISM,'KEGG_Enrichment_Analysis_of_Contrasts', sep="_"),"KEGG", pAdjustMethod=ENRICHMENT_PADJ_METHOD, pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
+allRes_contrasts = Contrasts_Enrichment_Test(term_dir, gene_lists$contrasts, Pathway2name_, Pathway2gene, 'KEGG_Enrichment_Analysis_of_Contrasts', "KEGG", pAdjustMethod=ENRICHMENT_PADJ_METHOD, pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
 
 #create heatmaps of gene2term and term2term overlaps
 term_dir2 = paste0 (term_dir, "/Shared_genes_among_pathways")
@@ -1326,14 +1262,13 @@ names(ranked_genes) = pull(contrast_df, gene)
 
 #run GSEA (based on code from Hyppolite project)
 
-nr_total_genes = length(unique(ORGANISM_Pathway2gene[,2]))  #no. of genes having assigned pathways
+nr_total_genes = length(unique(Pathway2gene[,2]))  #no. of genes having assigned pathways
 res=GSEA (
   geneList=ranked_genes,
-  TERM2GENE=ORGANISM_Pathway2gene, 
-  TERM2NAME=ORGANISM_Pathway2name,
+  TERM2GENE=Pathway2gene, 
+  TERM2NAME=Pathway2name,
   minGSSize     = 4,
   maxGSSize     = nr_total_genes,
-  # eps = 0,
   pAdjustMethod = ENRICHMENT_PADJ_METHOD,
   pvalueCutoff  = ENRICHMENT_PVAL_CUTOFF)
 head(res)
@@ -1420,11 +1355,11 @@ names(ranked_genes) = pull(contrast_df, gene)
 
 #run GSEA (based on code from Hypolite project)
 
-nr_total_genes = length(unique(ORGANISM_Pathway2gene[,2]))  #no. of genes having assigned pathways
+nr_total_genes = length(unique(Pathway2gene[,2]))  #no. of genes having assigned pathways
 res1=GSEA (
   geneList=ranked_genes,
-  TERM2GENE=ORGANISM_Pathway2gene, 
-  TERM2NAME=ORGANISM_Pathway2name,
+  TERM2GENE=Pathway2gene, 
+  TERM2NAME=Pathway2name,
   minGSSize     = 4,
   maxGSSize     = nr_total_genes,
   pAdjustMethod = ENRICHMENT_PADJ_METHOD,
@@ -1466,11 +1401,11 @@ names(ranked_genes) = pull(contrast_df, gene)
 
 #run GSEA (based on code from Hypolite project)
 
-nr_total_genes = length(unique(ORGANISM_Pathway2gene[,2]))  #no. of genes having assigned pathways
+nr_total_genes = length(unique(Pathway2gene[,2]))  #no. of genes having assigned pathways
 res2=GSEA (
   geneList=ranked_genes,
-  TERM2GENE=ORGANISM_Pathway2gene, 
-  TERM2NAME=ORGANISM_Pathway2name,
+  TERM2GENE=Pathway2gene, 
+  TERM2NAME=Pathway2name,
   minGSSize     = 4,
   maxGSSize     = nr_total_genes,
   pAdjustMethod = ENRICHMENT_PADJ_METHOD,
@@ -1522,9 +1457,9 @@ trinotate <- read.delim(file = trinotate_file)
 
 #store
 if (exists("trinotate_main")) {
-  save(analysis_name, cutoffs, trinotate, col_data, contrasts_data, norm_counts, norm_log_counts, stats_df, DE_genes, DE_genes_stats, mat2plot, corrs2, binary_patterns_stats, clusters, ORGANISM_Pathway2name, ORGANISM_Pathway2gene, enrichment_tables, file=r_objects_file)
+  save(analysis_name, cutoffs, trinotate, col_data, contrasts_data, norm_counts, norm_log_counts, stats_df, DE_genes, DE_genes_stats, mat2plot, corrs2, binary_patterns_stats, clusters, Pathway2name, Pathway2gene, enrichment_tables, file=r_objects_file)
 } else if (exists("annot")) {
-  save(analysis_name, cutoffs, annot,     col_data, contrasts_data, norm_counts, norm_log_counts, stats_df, DE_genes, DE_genes_stats, mat2plot, corrs2, binary_patterns_stats, clusters, ORGANISM_Pathway2name, ORGANISM_Pathway2gene, enrichment_tables, file=r_objects_file)
+  save(analysis_name, cutoffs, annot,     col_data, contrasts_data, norm_counts, norm_log_counts, stats_df, DE_genes, DE_genes_stats, mat2plot, corrs2, binary_patterns_stats, clusters, Pathway2name, Pathway2gene, enrichment_tables, file=r_objects_file)
 }
 
 ```

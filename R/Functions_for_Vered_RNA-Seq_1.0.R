@@ -1969,25 +1969,6 @@ write_combined_genes_to_Excel = function (res_df2write) {
 
 ##### Enrichment analysis #####
 
-Filter_Pathways_By_Taxa <- function(taxon){
-  ko_paths_names_all = KEGGREST::keggList("pathway", "ko")
-  kegg_organisms     = KEGGREST::keggList("organism")
-  kegg_organisms     = as.data.frame(kegg_organisms)
-  organisms          = kegg_organisms[str_detect(kegg_organisms$phylogeny,taxon),'organism']
-  
-  paths = c()  #initialize paths vector
-  for (org in organisms) {
-    a = unique(KEGGREST::keggLink("pathway", org))  #get all pathways per species, make the list nonredundant
-    print (paste (org, length(a), "pathways"))
-    a = str_replace(a, "path:[a-z]+", "path:ko")  #replace species-specific with ko path name
-    paths = c(paths, a)  #add to paths vector
-  }
-  paths_unique = unique(paths)  #remove redundancy
-  print (paste ("No of unique KO pathways retrieved:", length(paths_unique)))
-  paths_unique = str_replace(paths_unique, "ko", "map")
-  return(paths_unique)
-}
-
 Clusters_Enrichment_Test=function(outDir,clusters,TERM2NAME,TERM2GENE,file_name,Type,pAdjustMethod='fdr',pvalueCutoff=0.05,gene2ko=FALSE,maxCategory=1000){
   
   #start
