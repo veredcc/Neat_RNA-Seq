@@ -7,4 +7,4 @@ Contact:
 Vered Chalifa-Caspi, Bioinformatics Core Facility, Ben-Gurion University, Israel
 veredcc@bgu.ac.il
 
-Please see the [Tutorial] (https://github.com/veredcc/Vered_RNA-Seq/wiki) for usage instructions.
+Please see the [Tutorial](https://github.com/veredcc/Vered_RNA-Seq/wiki) for usage instructions.
