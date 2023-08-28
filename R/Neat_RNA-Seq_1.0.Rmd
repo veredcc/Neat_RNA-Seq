@@ -558,7 +558,7 @@ for (pattern in patterns) {
   #print heatmap
   if (nr_genes <2) next
   mat2plot = filter_expression_matrix_by_gene_list(norm_log_counts_DE, genes2plot_corr)
-  file_name = paste0 (binary_patterns_dir, "/", "Heatmap_", pattern, ".png")  #Vered Aug2023
+  file_name = paste0 (binary_patterns_dir, "/", "Heatmap_", pattern, ".png")
   title = paste0 ("Pattern ", pattern, " (", nr_genes, " genes)")
   plot_expression_heatmap(mat2plot, EFFECTS, stats_df, col_data, file_name, color_range="red2blue", plot_title=title)
 }
@@ -645,7 +645,7 @@ head(Clustering$data)
 
 #specify output files. directory name will include no. of clusters
 clustering_title = paste0("Partition_clustering_", Clustering$nbclust, "_clusters")
-partition_clustering_dir <- sprintf("%s/%s",results_dir, clustering_title)  #Vered Aug2023
+partition_clustering_dir <- sprintf("%s/%s",results_dir, clustering_title)  
 if(!dir.exists(partition_clustering_dir)) dir.create(partition_clustering_dir)
 cluster_profiles_file1 = paste0 (partition_clustering_dir, "/", "cluster_profiles_DE_genes_smoothing.pdf")
 cluster_profiles_file2 = paste0 (partition_clustering_dir, "/", "cluster_profiles_DE_genes_error_bars.pdf")

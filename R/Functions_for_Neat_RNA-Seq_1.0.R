@@ -542,7 +542,7 @@ get_top_DE_genes = function (stats_df, n=2000) {
   return (top_DE_genes)
 }
 
-get_DE_genes_list_per_contrast = function (contrasts_data, stats_df) { #Vered 13.8.2023
+get_DE_genes_list_per_contrast = function (contrasts_data, stats_df) {
   DE_genes_lists = list()
   for (contrast in contrasts_data$Contrast_name) {
     pass_col = paste0("pass.", contrast)
@@ -995,7 +995,7 @@ plot_expression_heatmap = function (mat2plot, EFFECTS, stats_df, col_data, file_
   # Z-scoring: scale expression data by row
   mat2plot <- z_score(mat2plot)
 
-  #Vered 24.9.2020: remove rows which contain NaN values (otherwise pheatmap throws an error)
+  #remove rows which contain NaN values (otherwise pheatmap throws an error)
   mat2plot <- mat2plot[complete.cases(mat2plot), ]
   
   #make color scale
@@ -1038,7 +1038,7 @@ plot_expression_heatmap_wo_contrasts = function (mat2plot, EFFECTS, stats_df_int
   rownames(row_annotation) <- stats_df$gene
   row_annotation <- row_annotation[row.names(mat2plot),,drop=F]
   row_annotation[row_annotation==""] <- NA
-  #remove row_annotation columns (a.k.a. comparisons) with all NA (0 DE genes), otherwise pheatmap throws error (Vered)
+  #remove row_annotation columns (a.k.a. comparisons) with all NA (0 DE genes), otherwise pheatmap throws error
   row_annotation = row_annotation %>% select_if (function(x) any(!is.na(x)))
   
   # heatmap column annotation
@@ -1050,7 +1050,7 @@ plot_expression_heatmap_wo_contrasts = function (mat2plot, EFFECTS, stats_df_int
   # Z-scoring: scale expression data by row
   mat2plot = z_score(mat2plot)
   
-  #Vered 24.9.2020: remove rows which contain NaN values (otherwise pheatmap throws an error)
+  #remove rows which contain NaN values (otherwise pheatmap throws an error)
   mat2plot <- mat2plot[complete.cases(mat2plot), ]
   
   #make color scale
@@ -1131,7 +1131,7 @@ plot_expression_heatmap_for_precomputed_clusters = function (mat2plot, clusters,
   
   mat2plot_ordered = mat2plot[names(clusters),]
   
-  #Vered 24.9.2020: remove rows which contain NaN values (otherwise pheatmap throws an error)
+  #remove rows which contain NaN values (otherwise pheatmap throws an error)
   mat2plot_ordered <- mat2plot_ordered[complete.cases(mat2plot_ordered), ]
   
   #create column annotation (sample names) for the heatmap
@@ -2330,7 +2330,7 @@ remove_first_x_from_colnames_starting_with_xdd = function (x) {
   return (x)
 }
 
-make_data_frame_from_clusters = function (clusters) {  #vered Aug2023
+make_data_frame_from_clusters = function (clusters) { 
   clusters_df = data.frame(gene=names(clusters), cluster=clusters)
   return (clusters_df)
 }
@@ -2341,7 +2341,7 @@ z_score = function (expr_matrix) {
 
 make_list_from_clusters = function (clusters) {
   clusters_list = list()
-  for (cluster_name in sort(unique(clusters))){  #for each cluster get a list of the genes in this cluster  #vered Aug2023
+  for (cluster_name in sort(unique(clusters))){  #for each cluster get a list of the genes in this cluster  
     res_red=unique(names(clusters))
     Genes=res_red[res_red  %in% names(clusters[clusters %in% cluster_name])]
     clusters_list[[cluster_name]] = Genes

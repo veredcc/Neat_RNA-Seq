@@ -2,7 +2,7 @@
 
 # About
 
-Update this file with the parameters and input files of your current project, before executing "Vered_RNA-Seq_1.0.Rmd".
+Update this file with the parameters and input files of your current project, before executing "Neat_RNA-Seq_1.0.Rmd".
 
 # Global parameters
   
