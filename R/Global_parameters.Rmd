@@ -1,4 +1,4 @@
-## Global settings for Vered_RNA-Seq script
+## Global settings for Neat_RNA-Seq script
 
 # About
 
