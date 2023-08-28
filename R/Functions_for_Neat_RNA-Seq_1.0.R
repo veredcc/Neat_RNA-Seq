@@ -1,4 +1,4 @@
-## Functions for Vered_RNA-Seq_1.0 script
+## Functions for Neat_RNA-Seq_1.0 script
 ## by Vered Chalifa-Caspi
 
 ##### Preparations #####
