@@ -32,14 +32,14 @@ library(magrittr)
 library(RColorBrewer)
 library(pheatmap)
 library(gridExtra)
-library(openxlsx) #
-library(plotly) #
-library(colorspace) #
-library(ggrepel) #
-library(htmlwidgets) #
-library(factoextra)  #
-library(cowplot) #
-library(ggplot2) #
+library(openxlsx)
+library(plotly)
+library(colorspace)
+library(ggrepel)
+library(htmlwidgets)
+library(factoextra) 
+library(cowplot)
+library(ggplot2)
 
 library(DESeq2)
 library(tximport)
@@ -120,13 +120,19 @@ final_results_Combined_file = sprintf("%s/RESULTS_COMBINED_%s_%s.xlsx", results_
 (from external file)
 
 ```{r process external annot}
-annot = process_annotation_data (annotation_file, ANNOT_SOURCE)
+if (USE_EXTERNAL_ANNOTATION) {
+  annot = process_annotation_data (annotation_file, ANNOT_SOURCE)
+}
+
 ```
 
 ## Trinotate
 
 ```{r trinotate}
-trinotate_main = process_trinotate_data (trinotate_file)
+if (USE_TRINOTATE_ANNOTATION) {
+  trinotate_main = process_trinotate_data (trinotate_file)
+}
+
 ```
 # Statistics - Part I
 
@@ -436,48 +442,54 @@ pheatmap_data_DE_genes = plot_expression_heatmap(mat2plot, EFFECTS, stats_df, co
 
 ```{r hierarchical_clustering}
 
-#get norm_log_counts counts
-mat2plot = filter_expression_matrix_by_gene_list (norm_log_counts, top_DE_genes_interaction)
+if (CALC_INTERACTION) {
+  #get norm_log_counts counts
+  mat2plot = filter_expression_matrix_by_gene_list (norm_log_counts, top_DE_genes_interaction)
+  
+  #construct graph title
+  nr_genes = length(top_DE_genes_interaction)
+  if (SHOW_TOP_GENES_IN_HEATMAP) {
+    title = paste0("Hierarchical clustering of top genes with significant interaction (n=", nr_genes, ")")
+  } else {
+    title = paste0("Hierarchical clustering of genes with significant interaction (n=", nr_genes, ")")
+  }
+  
+  #specify output file
+  file_name = paste0 (results_dir, "/", "Heatmap_interaction_genes.png")
+  file_name1 = paste0 (results_dir, "/", "Heatmap_interaction_genes_wo_row_annot.png")
+  
+  #plot heatmap
+  
+  pheatmap_data_interaction_genes = plot_expression_heatmap(mat2plot, EFFECTS, stats_df_combined, col_data, file_name, color_range="red2blue", plot_title=title)
+  pheatmap_data_interaction_genes1 = plot_expression_heatmap_wo_contrasts(mat2plot, EFFECTS, stats_df_interaction, col_data, file_name1, color_range="red2blue", plot_title=title)
 
-#construct graph title
-nr_genes = length(top_DE_genes_interaction)
-if (SHOW_TOP_GENES_IN_HEATMAP) {
-  title = paste0("Hierarchical clustering of top genes with significant interaction (n=", nr_genes, ")")
-} else {
-  title = paste0("Hierarchical clustering of genes with significant interaction (n=", nr_genes, ")")
 }
 
-#specify output file
-file_name = paste0 (results_dir, "/", "Heatmap_interaction_genes.png")
-file_name1 = paste0 (results_dir, "/", "Heatmap_interaction_genes_wo_row_annot.png")
-
-#plot heatmap
-
-pheatmap_data_interaction_genes = plot_expression_heatmap(mat2plot, EFFECTS, stats_df_combined, col_data, file_name, color_range="red2blue", plot_title=title)
-pheatmap_data_interaction_genes1 = plot_expression_heatmap_wo_contrasts(mat2plot, EFFECTS, stats_df_interaction, col_data, file_name1, color_range="red2blue", plot_title=title)
 
 ```
 ## Heatmap of DE genes combined (any contrast or interaction)
 
 ```{r hierarchical_clustering}
 
-#get norm_log_counts counts
-mat2plot = filter_expression_matrix_by_gene_list (norm_log_counts, top_DE_genes_combined)
-
-#construct graph title
-nr_genes = length(top_DE_genes_combined)
-if (SHOW_TOP_GENES_IN_HEATMAP) {
-  title = paste0("Hierarchical clustering of top DE & interaction genes combined (n=", nr_genes, ")")
-} else {
-  title = paste0("Hierarchical clustering of DE & interaction genes combined (n=", nr_genes, ")")
+if (CALC_CONTRASTS && CALC_INTERACTION) {
+  #get norm_log_counts counts
+  mat2plot = filter_expression_matrix_by_gene_list (norm_log_counts, top_DE_genes_combined)
+  
+  #construct graph title
+  nr_genes = length(top_DE_genes_combined)
+  if (SHOW_TOP_GENES_IN_HEATMAP) {
+    title = paste0("Hierarchical clustering of top DE & interaction genes combined (n=", nr_genes, ")")
+  } else {
+    title = paste0("Hierarchical clustering of DE & interaction genes combined (n=", nr_genes, ")")
+  }
+  
+  #specify output file
+  file_name = paste0 (results_dir, "/", "Heatmap_DE_genes_combined.png")
+  
+  #plot heatmap
+  
+  pheatmap_data_combined_genes = plot_expression_heatmap(mat2plot, EFFECTS, stats_df_combined, col_data, file_name, color_range="red2blue", plot_title=title)
 }
-
-#specify output file
-file_name = paste0 (results_dir, "/", "Heatmap_DE_genes_combined.png")
-
-#plot heatmap
-
-pheatmap_data_combined_genes = plot_expression_heatmap(mat2plot, EFFECTS, stats_df_combined, col_data, file_name, color_range="red2blue", plot_title=title)
 
 ```
 # Binary patterns analysis
@@ -1232,7 +1244,7 @@ main_plot_list <- c(main_plot_list ,list(allRes[[2]]) )
 enrichment_tables$"KEGG" = allRes[[3]]
 
 #per contrast
-allRes_contrasts = Contrasts_Enrichment_Test(term_dir, gene_lists$contrasts, Pathway2name_, Pathway2gene, 'KEGG_Enrichment_Analysis_of_Contrasts', "KEGG", pAdjustMethod=ENRICHMENT_PADJ_METHOD, pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
+allRes_contrasts = Contrasts_Enrichment_Test(term_dir, gene_lists$contrasts, Pathway2name, Pathway2gene, 'KEGG_Enrichment_Analysis_of_Contrasts', "KEGG", pAdjustMethod=ENRICHMENT_PADJ_METHOD, pvalueCutoff=ENRICHMENT_PVAL_CUTOFF,gene2ko=FALSE,maxCategory = MAX_TERMS_IN_DOTPLOT)
 
 #create heatmaps of gene2term and term2term overlaps
 term_dir2 = paste0 (term_dir, "/Shared_genes_among_pathways")
@@ -1246,7 +1258,7 @@ main_plot_list <- c(main_plot_list ,list(heatmaps))
 
 #this code is not yet generalized. need to write a loop for all contrasts
 
-contrast_of_interest = "M_Reverse.vs.NC"
+contrast_of_interest = "R.vs.L"
 pval_col = paste0 ("pvalue.", contrast_of_interest)
 contrast_df = stats_df %>%
   select (gene, {{pval_col}}) %>%
@@ -1279,16 +1291,13 @@ write.table(GSEA_results, file=GESE_results_file, sep = "\t", quote = F, col.nam
 
 #Plot GSEA graph of a specific pathway
 gseaplot2(res, geneSetID = 2, title = res$Description[2])
-gseaplot2(res, geneSetID = "path:map04080", title = res$Description[3])  #assuming path:map04080 is the third in the results
-
-gseaplot2(res, geneSetID = 12, title = res$Description[12])
-gseaplot2(res, geneSetID = 22, title = res$Description[22])  #spliceosome
+gseaplot2(res, geneSetID = "path:mmu04714", title = res$Description[3])  #assuming path:mmu04714 is the third in the results
 
 #another option:
 gseaplot(res, geneSetID = 22, by = "runningScore", title = res$Description[22])
 
 #draw a heatmap of leading edge genes
-pathway_nr = 22
+pathway_nr = 2
 pathway_title = res$Description[pathway_nr]
 leading_edge_genes = res$core_enrichment[pathway_nr] %>% stringi::stri_split(regex = "/") %>% unlist
 
@@ -1330,7 +1339,7 @@ write.csv(res_df2write_DE2, file_name_csv, na="")
 
 #this code is not yet generalized. need to merge it with previous code chunk and to write a loop for all contrasts.
 
-contrast_of_interest = "M_Reverse.vs.NC"
+contrast_of_interest = "R.vs.L"
 pval_col = paste0 ("pvalue.", contrast_of_interest)
 fc_col   = paste0 ("linearFC.", contrast_of_interest)
 contrast_df = stats_df %>%
@@ -1371,8 +1380,7 @@ GESE_results_file = paste0 (term_dir, "/GSEA_results_", contrast_of_interest, "_
 write.table(GSEA_results1, file=GESE_results_file, sep = "\t", quote = F, col.names = T, row.names = F)
 
 #Plot GSEA graph of a specific pathway
-gseaplot2(res1, geneSetID = 3, title = res1$Description[3])  #oxidative phosphorylation
-gseaplot2(res1, geneSetID = 7, title = res1$Description[7])
+gseaplot2(res1, geneSetID = 3, title = res1$Description[3]) 
 
 
 ```
@@ -1382,7 +1390,7 @@ gseaplot2(res1, geneSetID = 7, title = res1$Description[7])
 
 #this code is not yet generalized. need to merge it with previous code chunks and to write a loop for all contrasts.
 
-contrast_of_interest = "M_Reverse.vs.NC"
+contrast_of_interest = "R.vs.L"
 fc_col   = paste0 ("linearFC.", contrast_of_interest)
 contrast_df = stats_df %>%
   select (gene, {{fc_col}}) %>%
@@ -1417,8 +1425,7 @@ GESE_results_file = paste0 (term_dir, "/GSEA_results_", contrast_of_interest, "_
 write.table(GSEA_results2, file=GESE_results_file, sep = "\t", quote = F, col.names = T, row.names = F)
 
 #Plot GSEA graph of a specific pathway
-gseaplot2(res2, geneSetID = 3, title = res2$Description[3])  #oxidative phosphorylation
-gseaplot2(res2, geneSetID = 7, title = res2$Description[7])
+gseaplot2(res2, geneSetID = 3, title = res2$Description[3]) 
 
 ```
 # Prepare data for GUIs
@@ -1452,11 +1459,13 @@ stats_df = select(stats_df, -starts_with("manual_cutoffs"))
 #arrange cutoffs and parameters in one list
 cutoffs = list(LINEAR_FC_CUTOFF=LINEAR_FC_CUTOFF, PADJ_CUTOFF=PADJ_CUTOFF, CORR_CUTOFF=CORR_CUTOFF, COUNTS_CUTOFF=COUNTS_CUTOFF, ENRICHMENT_PVAL_CUTOFF=ENRICHMENT_PVAL_CUTOFF, ENRICHMENT_PADJ_METHOD=ENRICHMENT_PADJ_METHOD, EFFECT1=EFFECTS[1], EFFECT2=EFFECTS[2], GROUP=GROUP, GROUP1=GROUP1)
 
-#get all trinotate data from trinotate file
-trinotate <- read.delim(file = trinotate_file)
+
 
 #store
 if (exists("trinotate_main")) {
+  #get all trinotate data from trinotate file
+  trinotate <- read.delim(file = trinotate_file)
+  #store
   save(analysis_name, cutoffs, trinotate, col_data, contrasts_data, norm_counts, norm_log_counts, stats_df, DE_genes, DE_genes_stats, mat2plot, corrs2, binary_patterns_stats, clusters, Pathway2name, Pathway2gene, enrichment_tables, file=r_objects_file)
 } else if (exists("annot")) {
   save(analysis_name, cutoffs, annot,     col_data, contrasts_data, norm_counts, norm_log_counts, stats_df, DE_genes, DE_genes_stats, mat2plot, corrs2, binary_patterns_stats, clusters, Pathway2name, Pathway2gene, enrichment_tables, file=r_objects_file)

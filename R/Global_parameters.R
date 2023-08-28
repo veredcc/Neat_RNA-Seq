@@ -1,22 +1,21 @@
-## Global settings for Neat_RNA-Seq script
+# Global settings for Neat_RNA-Seq script
 
-# About
+# Update this file with the parameters and input files of your current project, before executing "Neat_RNA-Seq_1.0.Rmd".
 
-Update this file with the parameters and input files of your current project, before executing "Neat_RNA-Seq_1.0.Rmd".
-
-# Global parameters
-  
-```{r global params}
+##### Global parameters #####
 
 ## General
 
 set.seed(111)
 
-project_name = "HFD_Ad"
+project_name   = "HFD_Ad"
 
-analysis_round = "01a_Midaged_devel"  # options, for example:  Kidney, Heart, or any name for a round of an analysis        
+analysis_round = "Analysis_01"        
 
 ## Gene annotation
+
+USE_EXTERNAL_ANNOTATION  = T
+USE_TRINOTATE_ANNOTATION = F
 
 #modify gene ID?
 CHOP_GENE_ID_BY_DELIMITER = TRUE #FALSE: to leave gene ID as is, e.g. in trinity results.
@@ -38,18 +37,18 @@ CALC_INTERACTION = FALSE   #whether or not to calculate interaction (TURE, FALSE
 
 #set DESIGN for contrasts
 
-DESIGN = "~ Diet_per_age"  #examples: "~ Stage", "~ Batch + Diet"
+DESIGN = "~ Batch + Treatment"  #examples: "~ Stage", "~ Batch + Treatment"
 
 #set DESIGN for interaction
 
-DESIGN_INTERACTION = "~ Age + Diet + Age:Diet"
-LRT                = "~ Age + Diet"
+DESIGN_INTERACTION = ""    #example: "~ Age + Diet + Age:Diet"
+LRT                = ""    #example: "~ Age + Diet"
 
 #use expanded or simple model in DESeq function (default - expanded)
 #simple model is when the control of all treatment groups is in the first treatment group
 #for more complex designs, use expanded model
 
-use_expanded_model = FALSE
+use_expanded_model = F  #TRUE or FALSE
 
 #set cutoffs for DE contrasts
 
@@ -60,32 +59,32 @@ DESEQ_PADJ_CUTOFF = 0.05  #e.g. 0.05
 
 #set cutoffs for DE interaction
 
-PADJ_CUTOFF_INTERACTION       = 0.1
+PADJ_CUTOFF_INTERACTION       = 1   #e.g. 0.1  Will be neglected if CALC_INTERACTION is FALSE
 #PVAL_CUTOFF_INTERACTION      = 0.01       #pay attention, if you use this variable, you have to change the code in the "compute_contrasts" function in the functions file !!!
-DESEQ_PADJ_CUTOFF_INTERACTION = 0.1
+DESEQ_PADJ_CUTOFF_INTERACTION = 1   #e.g. 0.1  Will be neglected if CALC_INTERACTION is FALSE
 
 ## Visualization
 
 #set factors for PCA, heatmap, and excel top rows
 #specify col names from col_data, starting from the factor with the biggest effect
 
-EFFECTS = c("Batch", "Diet_per_age")
+EFFECTS = c("Batch", "Treatment")
 
 #normalization method (for visualization)
 NORM_METHOD = 'VSD'  #'VSD' or 'RLOG'
 
 #batch correction
 
-REMOVE_BATCH_EFFECT = F
-BATCH_EFFECTS = c('Batch')  #batch effects as columns of col_data. sva can use only one. limma can use up to two.
-BATCH_CORR_METHOD = 'sva' #sva or limma
+REMOVE_BATCH_EFFECT = T     #TRUE or FALSE
+BATCH_EFFECTS = c('Batch')  #indicate colunm name(s) from the Experiment_design file. sva can use only one. limma can use up to two.
+BATCH_CORR_METHOD = 'sva'   #sva or limma
 
 ## Clustering
 
 #set group factor for the binary pattern calculations and for partition clustering
 #(this is usually the factor that was used for the contrasts)
 
-GROUP = "Diet_per_age"
+GROUP = "Treatment"
 
 #set correlation cutoff for binary pattern calculation
 
@@ -98,14 +97,14 @@ COUNTS_CUTOFF = 500
 #show only top n DE genes in hierarchical clustering?
 
 SHOW_TOP_GENES_IN_HEATMAP = FALSE   #TRUE: show only top DE genes in heatmap. FALSE: show all DE genes in heatmap
-NR_TOP_GENES = 5000
+NR_TOP_GENES = 5000  #if SHOW_TOP_GENES_IN_HEATMAP is set to FALSE, this parameter will be neglected
 
 #partition clustering
 
 K_FIXED = 12 #no. of requested clusters. if NA, K_MAX will be used
 K_MAX = 20
 
-GROUP1 = "Diet_per_age"   #usually GROUP will be the main treatment (e.g. diet), and GROUP1 will be another biological factor, e.g. age
+GROUP1 = "Treatment"   #usually GROUP will be the main treatment (e.g. diet), and GROUP1 will be another biological factor, e.g. age
 
 #manual clustering
 PERFORM_MANUAL_CLUSTERING = T  #TRUE or FALSE
@@ -113,7 +112,7 @@ PERFORM_MANUAL_CLUSTERING = T  #TRUE or FALSE
 ## Enrichment analysis
 
 FILTER_KEGG_PATHWAYS_BY_TAXON = NA  #provide KEGG taxon (name or ID?) to filter the pathways. for no filtering use NA
-PLOT_GO_TERM_OVERLAPS = F  #plot heatmaps and create excels of gene2term and term2term overlaps
+PLOT_GO_TERM_OVERLAPS = F  #plot heatmaps and create excels of gene2term and term2term overlaps (may be very large)
 
 #passed to clusterProfiler::enrichr
 ENRICHMENT_PVAL_CUTOFF = 0.05
@@ -121,19 +120,16 @@ ENRICHMENT_PADJ_METHOD = 'fdr' #options: "holm", "hochberg", "hommel", "bonferro
 #passed to enrichplot::dotplot as argument showCategory
 MAX_TERMS_IN_DOTPLOT = 30  #number of enriched terms to display in dotplot
 
-```
 
-# Input files and directories
-
-```{r infiles}
+##### Input files and directories #####
 
 #the three following should be prepared by the user, and are analysis-specific
 
-rsem_files_locations     = "Count_file_location_all_wo_Young_H8.txt"
+rsem_files_locations     = "Count_file_location.txt"
 
-experiment_design_file   = "Experiment_design_all_wo_Young_H8.txt"
+experiment_design_file   = "Experiment_design.txt"
 
-contrasts_file           = "Contrasts_midaged.txt"
+contrasts_file           = "Contrasts.txt"
 
 #the following files are per organism (or per de novo transcriptome assembly in non-model organisms)
 
@@ -144,7 +140,7 @@ contrasts_file           = "Contrasts_midaged.txt"
 annotation_file          = "mart_export.txt"  #or 
 
 #file prepared by trinotate (for non-model organisms)
-trinotate_file           = "Embryos_assembly_Tom.trino_anno_rep.xls"
+trinotate_file           = "Assembly.trino_anno_rep.xls"
 
 #directory with data required for enrichment analyses
 #kegg data are taken from Vered Perl script.
@@ -153,6 +149,3 @@ trinotate_file           = "Embryos_assembly_Tom.trino_anno_rep.xls"
 #Programming/Perl_workspace/Assaf_Rudich_03_HFD_KEGG_from_Vered_script/KEGG_2_ensembl_conversion8.pl
 functional_annot_dir     = "Func_annot_data"  
 
-
-
-```
