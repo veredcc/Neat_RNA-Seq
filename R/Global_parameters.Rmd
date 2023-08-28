@@ -4,6 +4,8 @@
 
 Update this file with the parameters and input files of your current project, before executing "Neat_RNA-Seq_1.0.Rmd".
 
+This file will be replaced by Global_parameters.R
+
 # Global parameters
   
 ```{r global params}
