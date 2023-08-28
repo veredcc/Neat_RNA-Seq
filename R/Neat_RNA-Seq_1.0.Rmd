@@ -50,7 +50,7 @@ library(sva)
 library(scater)
 library(enrichplot)
 
-source ("Global_parameters.Rmd")
+source ("Global_parameters.R")
 source ("Functions_for_Neat_RNA-Seq_1.0.R")
 
 ```
