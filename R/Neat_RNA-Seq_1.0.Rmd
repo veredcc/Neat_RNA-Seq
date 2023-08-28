@@ -51,7 +51,7 @@ library(scater)
 library(enrichplot)
 
 source ("Global_parameters.Rmd")
-source ("Functions_for_Vered_RNA-Seq_1.0.R")
+source ("Functions_for_Neat_RNA-Seq_1.0.R")
 
 ```
 # Preparations
