@@ -12,9 +12,9 @@ Update this file with the parameters and input files of your current project, be
 
 set.seed(111)
 
-project_name = "HFD_Hypo"
+project_name = "HFD_Ad"
 
-Tissue = "01a_Midaged_devel"  # options, for example:  Kidney, Heart, or any name for a round of an analysis        
+analysis_round = "01a_Midaged_devel"  # options, for example:  Kidney, Heart, or any name for a round of an analysis        
 
 ## Gene annotation
 
@@ -123,7 +123,7 @@ MAX_TERMS_IN_DOTPLOT = 30  #number of enriched terms to display in dotplot
 
 ```
 
-# Input files
+# Input files and directories
 
 ```{r infiles}
 

@@ -57,7 +57,7 @@ source ("Functions_for_Neat_RNA-Seq_1.0.R")
 # Preparations
 
 ```{r preparations}
-analysis_name <- sprintf("%s_%s",project_name,Tissue)
+analysis_name <- sprintf("%s_%s",project_name, analysis_round)
 
 LOG_FC_CUTOFF = log(LINEAR_FC_CUTOFF)
 
@@ -157,8 +157,8 @@ col_data = remove_samples_from_coldata(col_data, outlier_samples)
 
 #filter col_data to include only a specific tissue
 
-col_attribute = "Body_part"
-tissue = "Eye"
+col_attribute = "Body_part"   #name of a column in the experiment design file
+tissue = "Eye"                #a certain value (factor) in that column
 
 col_data = filter_coldata_by_tissue (col_data, col_attribute, tissue)
 
