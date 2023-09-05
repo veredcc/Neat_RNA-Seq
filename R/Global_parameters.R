@@ -4,20 +4,20 @@
 
 ##### Global parameters #####
 
-## General
+##### General ######
 
 set.seed(111)
 
 project_name   = "HFD_Ad"
 
-analysis_round = "Analysis_01"        
+analysis_round = "Analysis_04"        
 
-## Gene annotation
+##### Gene annotation #####
 
 USE_EXTERNAL_ANNOTATION  = T
 USE_TRINOTATE_ANNOTATION = F
 
-#modify gene ID?
+# modify gene ID
 CHOP_GENE_ID_BY_DELIMITER = TRUE #FALSE: to leave gene ID as is, e.g. in trinity results.
 #TRUE: to remove the part after the delimiter, e.g. when gene IDs have the form e.g. ENSMUSG00000027351_Spred1
 GENE_ID_DELIMITER = "_"   
@@ -28,7 +28,7 @@ GENE_ID_DELIMITER = "_"
 #currently only implemented for ensembl annotation downloaded from Ensembl/biomart which includes Gene stable ID, Gene name, Gene type, Gene description
 ANNOT_SOURCE = "Ensembl" #options: Ensembl, Trinotate (currently Trinotate does not have any effect)
 
-## Statistical analysis for differential expression
+##### Statistical analysis for differential expression #####
 
 #set design formula for DESeq2
 
@@ -63,7 +63,7 @@ PADJ_CUTOFF_INTERACTION       = 1   #e.g. 0.1  Will be neglected if CALC_INTERAC
 #PVAL_CUTOFF_INTERACTION      = 0.01       #pay attention, if you use this variable, you have to change the code in the "compute_contrasts" function in the functions file !!!
 DESEQ_PADJ_CUTOFF_INTERACTION = 1   #e.g. 0.1  Will be neglected if CALC_INTERACTION is FALSE
 
-## Visualization
+##### Visualization #####
 
 #set factors for PCA, heatmap, and excel top rows
 #specify col names from col_data, starting from the factor with the biggest effect
@@ -79,7 +79,7 @@ REMOVE_BATCH_EFFECT = T     #TRUE or FALSE
 BATCH_EFFECTS = c('Batch')  #indicate colunm name(s) from the Experiment_design file. sva can use only one. limma can use up to two.
 BATCH_CORR_METHOD = 'sva'   #sva or limma
 
-## Clustering
+##### Clustering #####
 
 #set group factor for the binary pattern calculations and for partition clustering
 #(this is usually the factor that was used for the contrasts)
@@ -108,11 +108,16 @@ GROUP1 = "Treatment"   #usually GROUP will be the main treatment (e.g. diet), an
 
 #manual clustering
 PERFORM_MANUAL_CLUSTERING = T  #TRUE or FALSE
+COLUMNS_FOR_MAN_CLUSTERING = c(1:3)  #currently manual clustering can only work on three biological groups. specify column indexes on mat2plot
+#for manual clustering option 1
+MAN_CLUST_FC_CUTOFF = 1.2 #orig was 1.5
+#for manual clustering option 2
+MAN_CLUST_DESEQ_FC_CUTOFF = 1.3
+MAN_CLUST_DESEQ_P_CUTOFF = 0.05   #wo FDR
 
-## Enrichment analysis
+##### Enrichment analysis #####
 
 FILTER_KEGG_PATHWAYS_BY_TAXON = NA  #provide KEGG taxon (name or ID?) to filter the pathways. for no filtering use NA
-PLOT_GO_TERM_OVERLAPS = F  #plot heatmaps and create excels of gene2term and term2term overlaps (may be very large)
 
 #passed to clusterProfiler::enrichr
 ENRICHMENT_PVAL_CUTOFF = 0.05
@@ -120,8 +125,10 @@ ENRICHMENT_PADJ_METHOD = 'fdr' #options: "holm", "hochberg", "hommel", "bonferro
 #passed to enrichplot::dotplot as argument showCategory
 MAX_TERMS_IN_DOTPLOT = 30  #number of enriched terms to display in dotplot
 
+##### Output to Excel #####
+results_all_with_DE = FALSE   #print results in one file with separate tabs for all genes and DE genes, or print results in two files
 
-##### Input files and directories #####
+#### Input files and directories ####
 
 #the three following should be prepared by the user, and are analysis-specific
 

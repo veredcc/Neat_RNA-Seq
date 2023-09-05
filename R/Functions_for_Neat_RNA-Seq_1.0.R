@@ -1,7 +1,6 @@
 ## Functions for Neat_RNA-Seq_1.0 script
 ## by Vered Chalifa-Caspi
 
-
 ##### Preparations #####
 
 import_rsem = function (rsem_files_locations, CHOP_GENE_ID_BY_DELIMITER=F, GENE_ID_DELIMITER=NA) {
@@ -543,18 +542,19 @@ get_top_DE_genes = function (stats_df, n=2000) {
   return (top_DE_genes)
 }
 
-get_DE_genes_list_per_contrast = function (contrasts_data, stats_df) {
-  DE_genes_lists = list()
-  for (contrast in contrasts_data$Contrast_name) {
-    pass_col = paste0("pass.", contrast)
-    up   = stats_df %>% filter (get({{pass_col}}) == "up") %>% pull (gene)
-    down = stats_df %>% filter (get({{pass_col}}) == "down") %>% pull (gene)
-    all = c(up, down)
-    DE_genes_lists[[paste0(contrast, "_up")]]   = up
-    DE_genes_lists[[paste0(contrast, "_down")]] = down
-    DE_genes_lists[[paste0(contrast, "_all")]]  = all
-  }
-  return (DE_genes_lists)
+get_DE_genes_list_per_contrast = function (contrast, stats_df) {
+  
+  #create a named vector where element names are genes and values are clusters ("up", "down")
+  
+  clusters = c() #start with an empty vector.
+  pass_col = paste0("pass.", contrast)
+  up   = stats_df %>% filter (get({{pass_col}}) == "up") %>% pull (gene)
+  down = stats_df %>% filter (get({{pass_col}}) == "down") %>% pull (gene)
+  up_cluster   = setNames(rep("up",   length(up)),   up)
+  down_cluster = setNames(rep("down", length(down)), down)
+  clusters = c(clusters, up_cluster, down_cluster)
+
+  return (clusters)
 }
 
 get_genes_from_file = function (file_name, has_header=FALSE) {
@@ -591,6 +591,103 @@ filter_expression_matrix_by_gene_list = function (expr_data, gene_list) {
   #assuming row names are gene names
   genes <- rownames(expr_data) %in% gene_list
   return (expr_data[genes,])
+}
+
+##### Ranked gene lists #####
+
+create_ranked_genes_by_pval_wo_direction = function(stats_df, contrast) {
+  
+  #create a data frame: gene, -log10 of pval, sorted by pval (highest -log10(pval) on top)
+  pval_col = paste0 ("pvalue.", contrast)
+  contrast_df = stats_df %>%
+    select (gene, {{pval_col}}) %>%
+    setNames(c("gene", "pval")) %>%
+    filter(!is.na(pval)) %>%
+    mutate(pval = -log10(pval)) %>%
+    mutate(pval = ifelse(is.na(pval), yes = 0, no = pval)) %>%
+    arrange(desc(pval))
+  
+  #convert to a named vector and store
+  ranked_genes = pull(contrast_df, pval)
+  names(ranked_genes) = pull(contrast_df, gene)
+  
+  return(ranked_genes)
+}
+
+create_ranked_genes_by_pval_with_direction = function(stats_df, contrast) {
+  
+  #create a data frame: gene, log10 of pval with sign according to direction of change, sorted
+  pval_col = paste0 ("pvalue.", contrast)
+  fc_col   = paste0 ("linearFC.", contrast)
+  contrast_df = stats_df %>%
+    select (gene, {{fc_col}}, {{pval_col}}) %>%
+    setNames(c("gene", "fc", "pval")) %>%
+    filter (!is.na(fc)) %>%
+    filter (!is.na(pval)) %>%
+    mutate(pval = -log10(pval)) %>%
+    mutate(pval = ifelse(is.na(pval), yes = 0, no = pval)) %>%
+    mutate(pval = ifelse(is.na(fc),
+                         yes = 0,
+                         no = ifelse(fc>0,
+                                     yes = pval,
+                                     no = -pval
+                         ))) %>%
+    select (-fc) %>%
+    arrange(desc(pval))
+  
+  #convert to a named vector
+  ranked_genes = pull(contrast_df, pval)
+  names(ranked_genes) = pull(contrast_df, gene)
+  
+  return(ranked_genes)
+}
+
+create_ranked_genes_by_fc = function(stats_df, contrast) {
+  fc_col   = paste0 ("linearFC.", contrast)
+  contrast_df = stats_df %>%
+    select (gene, {{fc_col}}) %>%
+    setNames(c("gene", "fc")) %>%
+    filter (!is.na(fc)) %>%
+    mutate (fc = ifelse (fc > 0,
+                         yes = fc,
+                         no = -1/fc)) %>%
+    mutate (fc = log2(fc)) %>%
+    mutate (fc = signif(fc, digits = 4)) %>%
+    arrange(desc(fc))
+  
+  #convert to a named vector
+  ranked_genes = pull(contrast_df, fc)
+  names(ranked_genes) = pull(contrast_df, gene)
+  
+  return(ranked_genes)
+}
+
+get_ranked_genes_by_min_pval_any_contrast = function (stats_df) {
+  
+  #get top n DE genes based on min pval in any comparison, sorted by this pval
+  
+  pval_cols <- str_detect(string = names(stats_df),
+                          pattern = "pvalue")
+  
+  min_pval_df <-
+    stats_df %>%
+    # Add column with minimum pval
+    cbind(min_pval=apply(X = stats_df[,pval_cols] ,
+                         MARGIN=1,
+                         FUN = function(x) ifelse(test = all(is.na(x)),
+                                                  yes = NA,
+                                                  no = min(x,na.rm = T)))) %>%
+    select(gene, min_pval) %>%
+    filter(!is.na(min_pval)) %>%
+    mutate(min_pval = -log10(min_pval)) %>%
+    mutate(min_pval = ifelse(is.na(min_pval), yes = 0, no = min_pval)) %>%
+    arrange(desc(min_pval))
+  
+  #convert to a named vector
+  ranked_genes = pull(min_pval_df, min_pval)
+  names(ranked_genes) = pull(min_pval_df, gene)
+  
+  return(ranked_genes)
 }
 
 ##### Binary patterns #####
@@ -725,6 +822,7 @@ calc_best_pattern_per_gene = function (corrs, CORR_CUTOFF=0.8, result_file_name,
   #show and print stats
 
   corr2_stats = table(corrs2$best_pattern)
+  cat ("\n")
   cat ("No. genes per pattern")
   print (corr2_stats)
   
@@ -763,10 +861,9 @@ direction = function (FC, cutoff) {
 
 ##### Graphics #####
 
-draw_sample_correlation_matrix = function (norm_log_counts, results_dir) {
+draw_sample_correlation_matrix = function (norm_log_counts, plots_dir) {
 
-  result_file = sprintf("%s/sample_correlation_heatmap.png",results_dir)
-  
+  result_file = file.path(plots_dir, "sample_correlation_heatmap.png")
   norm_log_counts = remove_first_x_from_all_colnames_if_exist(norm_log_counts)
   
   sampleDists <- dist(t(norm_log_counts))
@@ -785,7 +882,7 @@ draw_sample_correlation_matrix = function (norm_log_counts, results_dir) {
   
 }
 
-draw_pca = function (norm_log_counts, results_dir, pc_x=1, pc_y=2, shape, color) {
+draw_pca = function (norm_log_counts, plots_dir, pc_x=1, pc_y=2, shape, color) {
 
   axis1 = paste0("PC", pc_x)
   axis2 = paste0("PC", pc_y)
@@ -793,7 +890,7 @@ draw_pca = function (norm_log_counts, results_dir, pc_x=1, pc_y=2, shape, color)
   shape_factor <- shape
   color_factor <- color
 
-  result_file = sprintf("%s/PCA_%s.vs.%s.png",results_dir,axis1,axis2)
+  result_file = sprintf("%s/PCA_%s.vs.%s.png",plots_dir,axis1,axis2)
     
   #perform PCA analysis
   norm_log_counts_pca <- prcomp(t(norm_log_counts))
@@ -863,7 +960,7 @@ draw_pca_3d = function (norm_log_counts_pca, pca_3d_file, shape, color) {
   saveWidget(p, file = result_file, selfcontained = T, title=sprintf("Principal Component Analysis"))
 }
 
-draw_ma_and_volcano_plots = function (dds, contrasts_data, results_dir) {
+draw_ma_and_volcano_plots = function (dds, contrasts_data, plots_dir) {
 
   #compute stats for each contrast and draw plots
   for (i in 1:nrow(contrasts_data)) {
@@ -875,8 +972,8 @@ draw_ma_and_volcano_plots = function (dds, contrasts_data, results_dir) {
                           contrast=contrast,
                           alpha = DESEQ_PADJ_CUTOFF)
     
-    MA_plot_file = sprintf("%s/MAPlot_%s.png",results_dir,contrast_name)
-    volcano_plot_file = sprintf("%s/VolcanoPlot_%s.png",results_dir,contrast_name)
+    MA_plot_file      = sprintf("%s/MAPlot_%s.png",      plots_dir,contrast_name)
+    volcano_plot_file = sprintf("%s/VolcanoPlot_%s.png", plots_dir,contrast_name)
     
     # Draw MA plot
     
@@ -915,11 +1012,11 @@ draw_ma_and_volcano_plots = function (dds, contrasts_data, results_dir) {
   
 }
 
-draw_ma_and_volcano_plots_pdf = function (dds, contrasts_data, results_dir) {
+draw_ma_and_volcano_plots_pdf = function (dds, contrasts_data, plots_dir) {
 
   #this function works (for volcano), butthe PDF file it creates is too big and makes problems after opening it.
     
-  pdf_file_name = sprintf("%s/MA_and_volcano_Plot.pdf",results_dir)
+  pdf_file_name = file.path(plots_dir, "MA_and_volcano_Plot.pdf")
   p = list()  #list data structure to hold all graphs
    
   #compute stats for each contrast and draw plots
@@ -1519,9 +1616,9 @@ write_DE_genes_to_Excel = function (res_df2write) {
   
   #add cluster number and order of DE genes according to clustering using DeSeq2 module method
 
-  top_diff_genes_order1 = data.frame(gene=names(New_clusters),
-                                     cluster=New_clusters,
-                                     order_clusters = seq(from=1,by=1,along.with = New_clusters)) %>%
+  top_diff_genes_order1 = data.frame(gene=names(partition_clusters),
+                                     cluster=partition_clusters,
+                                     order_clusters = seq(from=1,by=1,along.with = partition_clusters)) %>%
     as_tibble()
   
   res_df2write_DE <-
@@ -1533,9 +1630,10 @@ write_DE_genes_to_Excel = function (res_df2write) {
   
   if (PERFORM_MANUAL_CLUSTERING) {
     
-    top_diff_genes_order2 = data.frame(gene=names(New_clusters_man),
-                                       man_cluster=New_clusters_man,
-                                       order_man_clusters = seq(from=1,by=1,along.with = New_clusters_man)) %>%
+    #here we take clustering number and order from manual clustering option 1
+    top_diff_genes_order2 = data.frame(gene=names(man_clusters_opt1_ordered),
+                                       man_cluster=man_clusters_opt1_ordered,
+                                       order_man_clusters = seq(from=1,by=1,along.with = man_clusters_opt1_ordered)) %>%
       as_tibble()
     
     res_df2write_DE <-
@@ -1970,140 +2068,93 @@ write_combined_genes_to_Excel = function (res_df2write) {
 
 ##### Enrichment analysis #####
 
-Clusters_Enrichment_Test=function(outDir,clusters,TERM2NAME,TERM2GENE,file_name,Type,pAdjustMethod='fdr',pvalueCutoff=0.05,gene2ko=FALSE,maxCategory=1000){
+Clusters_Enrichment_Test=function(Type, clusters,TERM2NAME,TERM2GENE, outDir, file_name, pvalueCutoff=0.05, pAdjustMethod='fdr', gene2ko=FALSE, maxCategory=1000){
   
-  #start
-  
-  allRes=list()
-  original_allRes = list()
-  cluster_names=list()
-  count=1
-  for (i in sort(unique(clusters))){
-    temp=General_Enrichment_Test(clusters,c(i),TERM2NAME,TERM2GENE,pAdjustMethod,pvalueCutoff )
-    if (length(temp)>0){
-        allRes[[count]]<-temp
-      cluster_names[count]=i
-      count=count+1
+  allRes0=list()
+
+  #calculate enrichment for each cluster
+  for (cluster_name in sort(unique(clusters))){
+    
+    genes_having_pathway=unique(TERM2GENE[,2])
+    genes_in_cluster = get_genes_per_cluster(clusters, cluster_name)
+    Genes = intersect(genes_in_cluster, genes_having_pathway)
+    
+    res=enricher(Genes,
+                 TERM2GENE     = TERM2GENE, 
+                 TERM2NAME     = TERM2NAME,
+                 minGSSize     = 0,
+                 #maxGSSize    = length(genes_having_pathway),
+                 maxGSSize     = 10000,
+                 pAdjustMethod = pAdjustMethod,
+                 pvalueCutoff  = pvalueCutoff,
+                 qvalueCutoff  = 1
+    )
+    
+    #store results in allRes0 list
+    if (length(res)>0){
+      allRes0[[as.character(cluster_name)]]<-res
     }
   } 
-  names(allRes)=cluster_names
-  allRes=clusterProfiler::merge_result(enrichResultList =allRes)
+  
+  #merge results for all clusters using clusterProfiler::merge_result
+  allRes=clusterProfiler::merge_result(enrichResultList = allRes0)
   if (Type=="KO"){
-    allRes<-generat_urls(allRes,gene2ko)
+    allRes<-generat_urls(allRes, gene2ko)
   }
   
+  #create and print enrichment results in excel
   enrichment_table = process_clusterprofiler_results_table (allRes@compareClusterResult)
-  
-  write.csv(x = enrichment_table,
-            file =file.path(outDir,paste(file_name,'.csv',collapse = "")) ,
-            quote = TRUE,
+  enrichment_table_file = file.path(outDir, paste0(file_name,'.csv'))
+  write.csv(x         = enrichment_table,
+            file      = enrichment_table_file,
+            quote     = TRUE,
             row.names = TRUE)
   
-  original_allRes = allRes
-  Simplify_title = c()
+  #add AllRes@fun (Vered: I don't know if/why this is necessary)
   if (Type=="GO"){
     allRes@fun<-"enrichGO"
-    clusterProfiler::simplify(allRes, cutoff=0.7, by="p.adjust", select_fun=min)
-    file_name=paste("Simplify",file_name,collapse = "_")
-    
-    enrichment_table_simplify = process_clusterprofiler_results_table (allRes@compareClusterResult)
-    
-    write.csv(x = enrichment_table_simplify,
-              file =file.path(outDir,paste(file_name,'.csv',sep='',collapse = "")) ,
-              quote = FALSE,
-              row.names = TRUE)
-    
-  }else{
+  } else {
     allRes@fun<-"enrichKEGG"
   }
+  
+  #create and print GO simplify results in excel
+  allRes_simplify = NULL
+  enrichment_table_simplify = NULL
+  if (Type=="GO"){
+    allRes_simplify = clusterProfiler::simplify(allRes, cutoff=0.7, by="p.adjust", select_fun=min)
+    enrichment_table_simplify = process_clusterprofiler_results_table (allRes_simplify@compareClusterResult)
+    enrichment_table_simplify_file = file.path (outDir, paste0("Simplify_", file_name, ".csv"))
+    write.csv(x         = enrichment_table_simplify,
+              file      = enrichment_table_simplify_file,
+              quote     = FALSE,
+              row.names = TRUE)
+  }
+  
+  #set font size for dot plot
   if (dim(allRes@compareClusterResult)[1]>50){
     font.size=4
   }else{
     font.size=9
   }
   
-  #prepare enrichment table(s) object for delivery to RShiny
-  enrich_tables = list()
-  if(exists("enrichment_table")) {
-    enrich_tables$all = enrichment_table
-  }
-  if (exists("enrichment_table_simplify")) {
-    enrich_tables$simplify = enrichment_table_simplify
-  }
-  #draw a dot plot and return the relevant objects and graph
-  
-   if (dim(allRes@compareClusterResult)[1]>0){
-     x=enrichplot::dotplot(allRes,showCategory=maxCategory,font.size=font.size)
-     ggplot2::ggsave(filename = file.path(outDir,paste(file_name,".pdf",sep='',collapse = "")),dpi = 600,device = "pdf",width = 20,height = 20)
-     #Vered 26.7.2023 - added enrichment table and enrichment_table_simplify for delivery to RShiny
-     return(list(original_allRes,list(htmltools::h4(paste(unlist(stringi::stri_split(str = file_name,fixed='_')),collapse = " ")),plotly::ggplotly(x),Simplify_title), enrich_tables))
-   }
-  #Vered 26.7.2023 - added enrichment table and enrichment_table_simplify for delivery to RShiny
-  return(list(original_allRes,list(htmltools::h4(paste(unlist(stringi::stri_split(str = file_name,fixed='_')),collapse = " "))), enrich_tables))															
-}
-
-Contrasts_Enrichment_Test=function(outDir,DE_genes_lists,TERM2NAME,TERM2GENE,file_name,Type,pAdjustMethod='fdr',pvalueCutoff=0.05,gene2ko=FALSE,maxCategory=1000){
-
-  #start
-  
-  allRes=list()
-  original_allRes = list()
-  cluster_names=list()
-  count=1
-  for (key in names(DE_genes_lists)) {
-    gene_list = DE_genes_lists[[key]]
-    if (length(gene_list)>0) {
-      temp=General_Enrichment_Test1(gene_list,TERM2NAME,TERM2GENE,pAdjustMethod,pvalueCutoff )
-      if (length(temp)>0){
-        allRes[[key]]<-temp
-      }
-    }
-
-  }
-  
-  allRes=clusterProfiler::merge_result(enrichResultList =allRes)
-  if (Type=="KO"){
-    allRes<-generat_urls(allRes,gene2ko)
-  }
-  
-  enrichment_table = process_clusterprofiler_results_table (allRes@compareClusterResult)
-  
-  write.csv(x = enrichment_table,
-            file =file.path(outDir,paste(file_name,'.csv',collapse = "")) ,
-            quote = TRUE,
-            row.names = TRUE)
-  
-  original_allRes = allRes
-  Simplify_title = c()
-  if (Type=="GO"){
-    allRes@fun<-"enrichGO"
-    clusterProfiler::simplify(allRes, cutoff=0.7, by="p.adjust", select_fun=min)
-    file_name=paste("Simplify",file_name,collapse = "_")
-    
-    enrichment_table = process_clusterprofiler_results_table (allRes@compareClusterResult)
-    
-    write.csv(x = enrichment_table,
-              file =file.path(outDir,paste(file_name,'.csv',sep='',collapse = "")) ,
-              quote = FALSE,
-              row.names = TRUE)
-    
-  }else{
-    allRes@fun<-"enrichKEGG"
-  }
-  if (dim(allRes@compareClusterResult)[1]>50){
-    font.size=4
-  }else{
-    font.size=9
-  }
-  
-  #draw a dot plot and return the relevant objects and graph
-  
+  #draw dot plot
   if (dim(allRes@compareClusterResult)[1]>0){
-    x=enrichplot::dotplot(allRes,showCategory=maxCategory,font.size=font.size)
-    ggplot2::ggsave(filename = file.path(outDir,paste(file_name,".pdf",sep='',collapse = "")),dpi = 600,device = "pdf",width = 20,height = 20)
-    return(list(original_allRes,list(htmltools::h4(paste(unlist(stringi::stri_split(str = file_name,fixed='_')),collapse = " ")),plotly::ggplotly(x),Simplify_title)))
+    dot_plot_file = file.path(outDir, paste0(file_name, ".pdf"))
+    x = enrichplot::dotplot (allRes,
+                             showCategory = maxCategory,
+                             font.size=font.size)
+    ggplot2::ggsave(filename = dot_plot_file,
+                    dpi = 600,
+                    device = "pdf",
+                    width = 20,
+                    height = 20)
   }
-  return(list(original_allRes,list(htmltools::h4(paste(unlist(stringi::stri_split(str = file_name,fixed='_')),collapse = " ")))))
+  
+  #return: a list containing enrichment results for all clusters, simplify enrich. results
+  return(list(allRes,
+              allRes_simplify,
+              enrichment_table,
+              enrichment_table_simplify))														
 }
 
 process_clusterprofiler_results_table = function(clusterprofiler_results_table) {
@@ -2120,42 +2171,6 @@ process_clusterprofiler_results_table = function(clusterprofiler_results_table) 
                              yes  = geneID,
                              no   = text_to_show))
   return(enrichment_table)
-}
-
-General_Enrichment_Test<-function(clusters,num,TERM2NAME,TERM2GENE,pAdjustMethod='fdr',pvalueCutoff=0.05){
-  
-  res_red=unique(TERM2GENE[,2])
-  Genes=res_red[res_red  %in% names(clusters[clusters %in% num])]
-  
-  res=enricher(Genes, TERM2GENE=TERM2GENE, 
-               TERM2NAME=TERM2NAME,
-               minGSSize     = 0,
-               #maxGSSize     = length(res_red),
-               maxGSSize     = 10000,
-               pAdjustMethod = pAdjustMethod,
-               pvalueCutoff  = pvalueCutoff,
-               qvalueCutoff  = 1  #Vered added 10.8.2023
-  ) 
-  
-  return(res)
-}
-
-General_Enrichment_Test1<-function(gene_list,TERM2NAME,TERM2GENE,pAdjustMethod='fdr',pvalueCutoff=0.05){  
-  
-  res_red=unique(TERM2GENE[,2])
-  Genes = intersect(gene_list, res_red)
-  
-  res=enricher(Genes, TERM2GENE=TERM2GENE, 
-               TERM2NAME=TERM2NAME,
-               minGSSize     = 0,
-               #maxGSSize     = length(res_red),
-               maxGSSize     = 10000,
-               pAdjustMethod = pAdjustMethod,
-               pvalueCutoff  = pvalueCutoff,
-               qvalueCutoff  = 1  #Vered added 10.8.2023
-  ) 
-  
-  return(res)
 }
 
 plot_shared_genes<-function(allRes,outDir,file_name){
@@ -2196,7 +2211,7 @@ plot_shared_genes<-function(allRes,outDir,file_name){
             mybreaks=c(0,1)
           }
           
-          heatmap_file = file.path(outDir,paste0('Cluster_',cluster,'_genes2term_',file_name,".pdf"))
+          heatmap_file = file.path(outDir, paste0('Cluster_',cluster,'_genes2term_',file_name,".pdf"))
           
           heat_map = pheatmap(mat = mat,cluster_rows = T,
                               treeheight_col = 0,
@@ -2216,7 +2231,7 @@ plot_shared_genes<-function(allRes,outDir,file_name){
           
         }
         
-        csv_file = file.path(outDir,paste0('Cluster_',cluster,'_genes2term_',file_name,".csv"))
+        csv_file = file.path(outDir, paste0('Cluster_',cluster,'_genes2term_',file_name,".csv"))
         
         write.csv(x = mat[heat_map$tree_row$order,heat_map$tree_col$order],
                   quote = T,
@@ -2245,7 +2260,7 @@ plot_shared_genes<-function(allRes,outDir,file_name){
           mybreaks=c(0,1)
         }
         
-        heatmap_file1 = file.path(outDir,paste0('Cluster_',cluster,'_term2term_',file_name,".pdf"))
+        heatmap_file1 = file.path(outDir, paste0('Cluster_', cluster, '_term2term_', file_name,".pdf"))
         
         if (length(TEMP$ID)>20){
           heat_map = pheatmap(mat = mat,cluster_rows = T,
@@ -2309,6 +2324,12 @@ generat_urls<-function(allRes,gene2ko){
 
 ##### Utilities #####
 
+create_dir = function (directory) {
+  #create a new directory if it does not yet exist (path is relative to the current script)
+  if(!dir.exists(directory)) dir.create(directory)
+  return(directory)
+}
+
 remove_first_n_chars_from_col_names = function (x, n=1) {
   #by default, removes the first character from the name of each column
   i = n+1
@@ -2331,23 +2352,34 @@ remove_first_x_from_colnames_starting_with_xdd = function (x) {
   return (x)
 }
 
-make_data_frame_from_clusters = function (clusters) { 
-  clusters_df = data.frame(gene=names(clusters), cluster=clusters)
-  return (clusters_df)
-}
-
 z_score = function (expr_matrix) {
   expr_matrix %>% t %>% scale %>% t
 }
 
-make_list_from_clusters = function (clusters) {
-  clusters_list = list()
-  for (cluster_name in sort(unique(clusters))){  #for each cluster get a list of the genes in this cluster  
-    res_red=unique(names(clusters))
-    Genes=res_red[res_red  %in% names(clusters[clusters %in% cluster_name])]
-    clusters_list[[cluster_name]] = Genes
+create_clusters_object = function (genes, clusters) {
+  #receives 2 matching vectors 
+  #you may wish to do as.numeric(clusters) before submitting to the function
+  clusters <- setNames(clusters, genes)
+  return (clusters)
+}
+
+make_data_frame_from_clusters = function (clusters) {
+  if (length(clusters)> 0) {
+    clusters_df = data.frame(gene=names(clusters), cluster=clusters)
+  } else {
+    clusters_df = data.frame(matrix(nrow=0, ncol=2)) %>% setNames(c("gene", "cluster")) #empty df
   }
-  return(clusters_list)
+  return (clusters_df)
+}
+
+make_clusters_from_data_frame = function (df) {
+  #clusters <- setNames(as.numeric(df$cluster), df$gene)  #not sure we need as.numeric
+  clusters <- setNames(df$cluster, df$gene)
+  return(clusters)
+}
+
+get_genes_per_cluster = function (clusters, cluster_name) {
+  return (names(clusters[clusters == cluster_name]))
 }
 
 export_table = function (data, file_name) {
