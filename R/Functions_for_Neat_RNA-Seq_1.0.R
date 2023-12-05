@@ -1073,27 +1073,48 @@ draw_ma_and_volcano_plots_pdf = function (dds, contrasts_data, plots_dir) {
   
 }
 
-plot_expression_heatmap = function (mat2plot, EFFECTS, stats_df, col_data, file_name, color_range="red2green", row_distance_measure="correlation", plot_title = NA) {
-
-  # heatmap row annotation
-  row_annotation <- stats_df[, str_detect(names(stats_df),"pass") & !names(stats_df)=="pass_any" & !names(stats_df)=="pass_combined",drop=F]
-  colnames(row_annotation) <- colnames(row_annotation) %>% str_replace("pass.","")
-  rownames(row_annotation) <- stats_df$gene
-  row_annotation <- row_annotation[row.names(mat2plot),,drop=F]
-  row_annotation[row_annotation==""] <- NA
-  #remove row_annotation columns (a.k.a. comparisons) with all NA (0 DE genes), otherwise pheatmap throws error (Vered)
-  row_annotation = row_annotation %>% select_if (function(x) any(!is.na(x)))
-
-  # heatmap column annotation
-  col_annotation = col_data %>% select(all_of(EFFECTS))
-
-  col_annotation$sample <- NULL
+plot_expression_heatmap = function (mat2plot, EFFECTS, stats_df, col_data, file_name,
+                                    color_range="red2green", row_distance_measure="correlation", plot_title = NA,
+                                    plot_width=28, plot_height=20, row_annot=T, col_annot=T, show_sample_names=T, show_dend=T) {
   
-      
+  # heatmap row annotation
+  if (row_annot) {
+    row_annotation <- stats_df[, str_detect(names(stats_df),"pass") & !names(stats_df)=="pass_any" & !names(stats_df)=="pass_combined",drop=F]
+    colnames(row_annotation) <- colnames(row_annotation) %>% str_replace("pass.","")
+    rownames(row_annotation) <- stats_df$gene
+    row_annotation <- row_annotation[row.names(mat2plot),,drop=F]
+    row_annotation[row_annotation==""] <- NA
+    #remove row_annotation columns (a.k.a. comparisons) with all NA (0 DE genes), otherwise pheatmap throws error (Vered)
+    row_annotation = row_annotation %>% select_if (function(x) any(!is.na(x)))
+  } else {
+    row_annotation = NA
+  }
+  
+  
+  # heatmap column annotation
+  if (col_annot) {
+    col_annotation = col_data %>% select(all_of(EFFECTS))
+    
+    # as_tibble(rownames = "sample") %>%
+    # arrange(Tissue,Type) %>%                  # Enter columns to sort by here
+    # as.data.frame()
+    # rownames(col_annotation) <- col_annotation$sample
+    col_annotation$sample <- NULL
+  } else {
+    col_annotation = NA
+  }
+  
+  # show or hide row dendogram
+  if (show_dend) {
+    dendogram_height = 50
+  } else {
+    dendogram_height = 0
+  }
+  
   # Z-scoring: scale expression data by row
-  mat2plot <- z_score(mat2plot)
-
-  #remove rows which contain NaN values (otherwise pheatmap throws an error)
+  mat2plot <- mat2plot %>% t %>% scale %>% t
+  
+  #Vered 24.9.2020: remove rows which contain NaN values (otherwise pheatmap throws an error)
   mat2plot <- mat2plot[complete.cases(mat2plot), ]
   
   #make color scale
@@ -1106,9 +1127,9 @@ plot_expression_heatmap = function (mat2plot, EFFECTS, stats_df, col_data, file_
   )
   
   png(filename = file_name,
-      width = 28,
-      height = 20,
-      units = "cm",
+      width  = plot_width,
+      height = plot_height,
+      units  = "cm",
       res=300)
   pheatmap_data <-
     pheatmap(mat2plot,
@@ -1120,6 +1141,8 @@ plot_expression_heatmap = function (mat2plot, EFFECTS, stats_df, col_data, file_
              annotation_col = col_annotation,
              main = plot_title,
              show_rownames = F,
+             show_colnames = show_sample_names,
+             treeheight_row = dendogram_height,
              width = 15, height = 10                       # Comment these two lines for stdout
     )
   dev.off()
@@ -1183,10 +1206,21 @@ plot_expression_heatmap_wo_contrasts = function (mat2plot, EFFECTS, stats_df_int
   
 }
 
-plot_expression_heatmap_for_precomputed_clusters = function (mat2plot, clusters, EFFECTS, GROUP, GROUP1, col_data, heatmap_file_name, row_distance_measure="correlation", plot_title = NA) {
-
+plot_expression_heatmap_for_precomputed_clusters = function (mat2plot, clusters, EFFECTS, GROUP, GROUP1, col_data, heatmap_file_name,
+                                                             row_distance_measure="correlation", plot_title = NA,
+                                                             plot_width=15, plot_height=15, row_annot=T, col_annot=T, show_sample_names=T, show_dend=T,
+                                                             scale=1.5,
+                                                             print_file_per_cluster=T) {
+  
   #code adjusted from Liron's DeSeq2 module
-    
+  
+  # show or hide row dendogram
+  if (show_dend) {
+    dendogram_height = 50
+  } else {
+    dendogram_height = 0
+  }
+  
   New_clusters=c()
   for (num in sort(unique(clusters))){  #for each cluster
     #get a list of the genes in this cluster
@@ -1206,11 +1240,16 @@ plot_expression_heatmap_for_precomputed_clusters = function (mat2plot, clusters,
                         main = heatmap_title,
                         cluster_cols = F,
                         silent = F,   
-                        scale = "row")
+                        scale = "row",
+                        show_colnames = show_sample_names,
+                        treeheight_row = dendogram_height)
       
       
-      file_per_cluster = str_replace(heatmap_file_name, ".png", paste0("_cluster", num, ".png"))
-      ggsave(file_per_cluster,heat_map$gtable,dpi = 600, width = 15, height = 15, units = "cm",scale = 1.5)
+      if (print_file_per_cluster) {
+        file_per_cluster = str_replace(heatmap_file_name, ".png", paste0("_cluster", num, ".png"))
+        ggsave(file_per_cluster,heat_map$gtable,dpi = 600, width = plot_width, height = plot_height, units = "cm",scale = 1.5)
+      }
+      
       
       #add row order as computed by the hierarchical clustering
       #an array where element names are the genes and values are cluster no.
@@ -1229,32 +1268,46 @@ plot_expression_heatmap_for_precomputed_clusters = function (mat2plot, clusters,
   
   mat2plot_ordered = mat2plot[names(clusters),]
   
-  #remove rows which contain NaN values (otherwise pheatmap throws an error)
+  #Vered 24.9.2020: remove rows which contain NaN values (otherwise pheatmap throws an error)
   mat2plot_ordered <- mat2plot_ordered[complete.cases(mat2plot_ordered), ]
   
   #create column annotation (sample names) for the heatmap
   #creates a data frame where row names are sample names and there is one column called X_AXIS with the biol groups
   
   #choose one of the options. if GROUP is not equal to GROUP1 you may need to change the order
-  annotation_col = col_data[GROUP] #to show only the main effect (e.g. Diet)
-  annotation_col = col_data %>% select(all_of(EFFECTS))  #to show all effects
+  col_annotation = col_data[GROUP] #to show only the main effect (e.g. Diet)
+  col_annotation = col_data %>% select(all_of(EFFECTS))  #to show all effects
   
   #create row annotation (cluster no.) for the heatmap
   #create a data frame where row names are genes and there is one column called Clusters with the cluster no. clusters are factors
-  annotation_row = data.frame("Clusters" = factor(clusters))
+  if (row_annot) {
+    annotation_row = data.frame("Clusters" = factor(clusters))
+  } else {
+    annotation_row = NA
+  }
   
   #define row gaps
   row_gaps = cumsum(aggregate.data.frame(x = as.data.frame(clusters),by =list(clusters),FUN = length )[,"clusters"] )
   
   #define col gaps
   if (GROUP == GROUP1) {
-    col_gaps = cumsum(aggregate.data.frame(x = annotation_col[GROUP],by =annotation_col[GROUP],FUN = length)[,-1])
+    col_gaps = cumsum(aggregate.data.frame(x = col_annotation[GROUP],by =col_annotation[GROUP],FUN = length)[,-1])
   } else {
     #check this! may need to switch between GROUP and GROUP1. Note, this required that the samples are originally ordered as expected
     #(otherwise, see code from Liron how to reorder them according the needs of this hiererchical clustering)
-    col_gaps = c(cumsum(rev(aggregate.data.frame(x = annotation_col[GROUP1],by =annotation_col[c(GROUP1,GROUP)],FUN = length))[,1]),
-                 rep(cumsum(rev(aggregate.data.frame(x = annotation_col[GROUP],by =annotation_col[c(GROUP)],FUN = length))[,1]),2))    
+    col_gaps = c(cumsum(rev(aggregate.data.frame(x = col_annotation[GROUP1],by =col_annotation[c(GROUP1,GROUP)],FUN = length))[,1]),
+                 rep(cumsum(rev(aggregate.data.frame(x = col_annotation[GROUP],by =col_annotation[c(GROUP)],FUN = length))[,1]),2))    
   }
+  
+  #show or hide column annotation
+  
+  if (col_annot) {
+    annotation_col = col_annotation
+  } else {
+    annotation_col = NA
+  }
+  
+  
   
   #do clustering
   
@@ -1269,13 +1322,18 @@ plot_expression_heatmap_for_precomputed_clusters = function (mat2plot, clusters,
                     #annotation_colors = annotation_row_COLORS,
                     #annotation_names_row=T,
                     annotation_col=annotation_col,
-                    show_colnames = T,
+                    show_colnames = show_sample_names,
                     gaps_row = row_gaps,
                     gaps_col = col_gaps,
+                    treeheight_row = dendogram_height,
                     border_color=NA
   )
   
-  ggsave(heatmap_file_name,heat_map$gtable,dpi = 600, width = 15, height = 15, units = "cm",scale = 1.5)
+  ggsave(heatmap_file_name,heat_map$gtable,dpi = 600, width = plot_width, height = plot_height, units = "cm",scale = scale)
+  
+  
+  #for saving the graph in a long format:
+  #ggsave(heatmap_file_name,heat_map$gtable,dpi = 600, width = 23, height = 40, units = "cm")
   
   return(New_clusters)
 }

@@ -422,14 +422,27 @@ if (SHOW_TOP_GENES_IN_HEATMAP) {
   title = paste0("Hierarchical clustering of DE genes (n=", nr_genes, ")")
 }
 
-#specify output file
-file_name = file.path (plots_dir, "Heatmap_DE_genes.png")
-
 #plot heatmap
+
+file_name = paste0 (plots_dir, "/Heatmap_DE_genes.png") #specify output file
 
 pheatmap_data_DE_genes = plot_expression_heatmap(mat2plot, EFFECTS, stats_df, col_data, file_name, color_range="red2blue", plot_title=title)
 
+#plot long heatmap 
+
+file_name = paste0 (plots_dir, "/Heatmap_DE_genes_long.png")
+
+pheatmap_data_DE_genes = plot_expression_heatmap(mat2plot, EFFECTS, stats_df, col_data, file_name, color_range="red2blue", plot_title=title, plot_width=23, plot_height=40)
+
+#plot long heatmap without col and row annotation, without sample names and without dendogram
+#(feel free to change the parameters as necessary)
+
+file_name = paste0 (plots_dir, "/Heatmap_DE_genes_long_clean.png")
+
+pheatmap_data_DE_genes = plot_expression_heatmap(mat2plot, EFFECTS, stats_df, col_data, file_name, color_range="red2blue", plot_title=title, plot_width=23, plot_height=40, row_annot=F, col_annot=F, show_sample_names=F, show_dend=F)
+
 #store in gene lists as one cluster of all DE genes
+
 if(SHOW_TOP_GENES_IN_HEATMAP) {
   #if we don't have a heatmap of all DE genes (but only the top DE genes), use unordered gene list of all DE genes
   clusters = setNames(rep("all", length(DE_genes)), DE_genes)
@@ -850,7 +863,6 @@ clust_title = paste0("Manual_clusters_option1_cutoff", MAN_CLUST_FC_CUTOFF)
 manual_clusters_dir_opt1 = file.path (clustering_dir, clust_title) %>% create_dir
 
 man_cluster_profiles_file = file.path (manual_clusters_dir_opt1, "Manual_cluster_profiles.pdf")
-heatmap_file_name         = file.path (manual_clusters_dir_opt1, "Manual_clustering_heatmap.png")
 
 #construct graph title for heatmap
 nr_genes = length(top_DE_genes)
@@ -893,12 +905,31 @@ man_clustering_Plot1
 
 ``` {r plot man clusters heatmap}
 
-man_clusters_opt1_ordered = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt1, EFFECTS, GROUP, GROUP1, col_data, heatmap_file_name, plot_title = title)
+#plot heatmap of manual clusters and store results
+
+heatmap_file_name = file.path (manual_clusters_dir_opt1, "Manual_clustering_heatmap.png")
+man_clusters_opt1_ordered = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt1, EFFECTS, GROUP, GROUP1, col_data,
+                                                                              heatmap_file_name, plot_title = title)
 
 #store in gene_lists
 nr_clusters = length(unique(man_clusters_opt1))
 clustering_instance = paste0("FC", MAN_CLUST_FC_CUTOFF)
 gene_lists[["manual_clustering"]][[clustering_instance]] = man_clusters_opt1_ordered
+
+#print plots with other display settings
+
+#plot long heatmap of manual clusters
+heatmap_file_name = file.path (manual_clusters_dir_opt1, "Manual_clustering_heatmap_long.png")
+man_clusters_opt1_ordered1 = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt1, EFFECTS, GROUP, GROUP1, col_data,
+                                                                              heatmap_file_name, plot_title = title,
+                                                                              plot_width=23, plot_height=40, scale=0.7, print_file_per_cluster=F)
+
+#plot long heatmap of manual clusters wo col and row annotation, without sample names and wo dendogram
+heatmap_file_name = file.path (manual_clusters_dir_opt1, "Manual_clustering_heatmap_long_clean.png")
+man_clusters_opt1_ordered2 = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt1, EFFECTS, GROUP, GROUP1, col_data,
+                                                                              heatmap_file_name, plot_title = title,
+                                                                              plot_width=23, plot_height=40, row_annot=F, col_annot=F, show_sample_names=F,
+                                                                              show_dend=F, scale=0.7, print_file_per_cluster=F)
 
 ```
 
@@ -919,7 +950,6 @@ cluster_def
 manual_clusters_dir_opt2 = file.path(clustering_dir, "Manual_clusters_option2") %>% create_dir
 
 man_cluster_profiles_file = file.path (manual_clusters_dir_opt2, "Manual_cluster_profiles.pdf")
-heatmap_file_name         = file.path (manual_clusters_dir_opt2, "Manual_clustering_heatmap.png")
 
 #construct graph title for heatmap
 nr_genes = length(top_DE_genes)
@@ -968,12 +998,30 @@ man_clustering_Plot2
 
 ``` {r plot man clusters heatmap}
 
+#plot heatmap of manual clusters and store results
+
+heatmap_file_name = file.path (manual_clusters_dir_opt2, "Manual_clustering_heatmap.png")
 man_clusters_opt2_ordered = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt2, EFFECTS, GROUP, GROUP1, col_data, heatmap_file_name, plot_title = title)
 
 #store in gene_lists
 nr_clusters = length(unique(man_clusters_opt2))
 clustering_instance = paste0("FC", MAN_CLUST_DESEQ_FC_CUTOFF, "_p", MAN_CLUST_DESEQ_P_CUTOFF)
 gene_lists[["manual_clustering_opt2"]][[clustering_instance]] = man_clusters_opt2_ordered
+
+#print plots with other display settings
+
+#plot long heatmap of manual clusters
+heatmap_file_name = file.path (manual_clusters_dir_opt2, "Manual_clustering_heatmap_long.png")
+man_clusters_opt2_ordered = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt2, EFFECTS, GROUP, GROUP1, col_data,
+                                                                              heatmap_file_name, plot_title = title,
+                                                                              plot_width=23, plot_height=40, scale=0.7, print_file_per_cluster=F)
+
+#plot long heatmap of manual clusters wo col and row annotation, without sample names and wo dendogram
+heatmap_file_name = file.path (manual_clusters_dir_opt2, "Manual_clustering_heatmap_long_clean.png")
+man_clusters_opt2_ordered = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt2, EFFECTS, GROUP, GROUP1, col_data,
+                                                                              heatmap_file_name, plot_title = title, plot_width=23, plot_height=40,
+                                                                              row_annot=F, col_annot=F, show_sample_names=F,
+                                                                              show_dend=F, scale=0.7, print_file_per_cluster=F)
 
 ```
 
