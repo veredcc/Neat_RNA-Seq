@@ -643,6 +643,29 @@ create_ranked_genes_by_pval_with_direction = function(stats_df, contrast) {
 }
 
 create_ranked_genes_by_fc = function(stats_df, contrast) {
+  #I take the pval_col in order to enable filtering by p-val to get the same no. of genes as in the function create_ranked_genes_by_pval_with_direction
+  pval_col = paste0 ("pvalue.", contrast)
+  fc_col   = paste0 ("linearFC.", contrast)
+  contrast_df = stats_df %>%
+    select (gene, {{fc_col}}, {{pval_col}}) %>% 
+    setNames(c("gene", "fc", "pval")) %>%
+    filter (!is.na(fc)) %>%
+    filter (!is.na(pval)) %>%
+    mutate (fc = ifelse (fc > 0,
+                         yes = fc,
+                         no = -1/fc)) %>%
+    mutate (fc = log2(fc)) %>%
+    mutate (fc = signif(fc, digits = 4)) %>%
+    arrange(desc(fc))
+  
+  #convert to a named vector
+  ranked_genes = pull(contrast_df, fc)
+  names(ranked_genes) = pull(contrast_df, gene)
+  
+  return(ranked_genes)
+}
+
+create_ranked_genes_by_fc_BKP = function(stats_df, contrast) {
   fc_col   = paste0 ("linearFC.", contrast)
   contrast_df = stats_df %>%
     select (gene, {{fc_col}}) %>%
@@ -1086,6 +1109,10 @@ plot_expression_heatmap = function (mat2plot, EFFECTS, stats_df, col_data, file_
     row_annotation[row_annotation==""] <- NA
     #remove row_annotation columns (a.k.a. comparisons) with all NA (0 DE genes), otherwise pheatmap throws error (Vered)
     row_annotation = row_annotation %>% select_if (function(x) any(!is.na(x)))
+    #if nothing was left, don't include row annotation in the plot
+    if(ncol(row_annotation) == 0) {
+      row_annotation = NA
+    }
   } else {
     row_annotation = NA
   }
@@ -2127,7 +2154,7 @@ write_combined_genes_to_Excel = function (res_df2write) {
 ##### Enrichment analysis #####
 
 Clusters_Enrichment_Test=function(Type, clusters,TERM2NAME,TERM2GENE, outDir, file_name, pvalueCutoff=0.05, pAdjustMethod='fdr', gene2ko=FALSE, maxCategory=1000){
-  
+    
   allRes0=list()
 
   #calculate enrichment for each cluster
@@ -2137,82 +2164,89 @@ Clusters_Enrichment_Test=function(Type, clusters,TERM2NAME,TERM2GENE, outDir, fi
     genes_in_cluster = get_genes_per_cluster(clusters, cluster_name)
     Genes = intersect(genes_in_cluster, genes_having_pathway)
     
-    res=enricher(Genes,
-                 TERM2GENE     = TERM2GENE, 
-                 TERM2NAME     = TERM2NAME,
-                 minGSSize     = 0,
-                 #maxGSSize    = length(genes_having_pathway),
-                 maxGSSize     = 10000,
-                 pAdjustMethod = pAdjustMethod,
-                 pvalueCutoff  = pvalueCutoff,
-                 qvalueCutoff  = 1
-    )
-    
-    #store results in allRes0 list
-    if (length(res)>0){
-      allRes0[[as.character(cluster_name)]]<-res
+    if (length(Genes)>0) {
+      res=enricher(Genes,
+                   TERM2GENE     = TERM2GENE, 
+                   TERM2NAME     = TERM2NAME,
+                   minGSSize     = 0,
+                   #maxGSSize    = length(genes_having_pathway),
+                   maxGSSize     = 10000,
+                   pAdjustMethod = pAdjustMethod,
+                   pvalueCutoff  = pvalueCutoff,
+                   qvalueCutoff  = 1
+      )
+      
+      #store results in allRes0 list
+      if (length(res)>0){
+        allRes0[[as.character(cluster_name)]]<-res
+      }
     }
   } 
   
   #merge results for all clusters using clusterProfiler::merge_result
-  allRes=clusterProfiler::merge_result(enrichResultList = allRes0)
-  if (Type=="KO"){
-    allRes<-generat_urls(allRes, gene2ko)
-  }
-  
-  #create and print enrichment results in excel
-  enrichment_table = process_clusterprofiler_results_table (allRes@compareClusterResult)
-  enrichment_table_file = file.path(outDir, paste0(file_name,'.csv'))
-  write.csv(x         = enrichment_table,
-            file      = enrichment_table_file,
-            quote     = TRUE,
-            row.names = TRUE)
-  
-  #add AllRes@fun (Vered: I don't know if/why this is necessary)
-  if (Type=="GO"){
-    allRes@fun<-"enrichGO"
+
+  if(length(allRes0) == 0) {
+    return (list())
   } else {
-    allRes@fun<-"enrichKEGG"
-  }
-  
-  #create and print GO simplify results in excel
-  allRes_simplify = NULL
-  enrichment_table_simplify = NULL
-  if (Type=="GO"){
-    allRes_simplify = clusterProfiler::simplify(allRes, cutoff=0.7, by="p.adjust", select_fun=min)
-    enrichment_table_simplify = process_clusterprofiler_results_table (allRes_simplify@compareClusterResult)
-    enrichment_table_simplify_file = file.path (outDir, paste0("Simplify_", file_name, ".csv"))
-    write.csv(x         = enrichment_table_simplify,
-              file      = enrichment_table_simplify_file,
-              quote     = FALSE,
+    allRes=clusterProfiler::merge_result(enrichResultList = allRes0)
+    if (Type=="KO"){
+      allRes<-generat_urls(allRes, gene2ko)
+    }
+    
+    #create and print enrichment results in excel
+    enrichment_table = process_clusterprofiler_results_table (allRes@compareClusterResult)
+    enrichment_table_file = file.path(outDir, paste0(file_name,'.csv'))
+    write.csv(x         = enrichment_table,
+              file      = enrichment_table_file,
+              quote     = TRUE,
               row.names = TRUE)
+    
+    #add AllRes@fun (Vered: I don't know if/why this is necessary)
+    if (Type=="GO"){
+      allRes@fun<-"enrichGO"
+    } else {
+      allRes@fun<-"enrichKEGG"
+    }
+    
+    #create and print GO simplify results in excel
+    allRes_simplify = NULL
+    enrichment_table_simplify = NULL
+    if (Type=="GO"){
+      allRes_simplify = clusterProfiler::simplify(allRes, cutoff=0.7, by="p.adjust", select_fun=min)
+      enrichment_table_simplify = process_clusterprofiler_results_table (allRes_simplify@compareClusterResult)
+      enrichment_table_simplify_file = file.path (outDir, paste0("Simplify_", file_name, ".csv"))
+      write.csv(x         = enrichment_table_simplify,
+                file      = enrichment_table_simplify_file,
+                quote     = FALSE,
+                row.names = TRUE)
+    }
+    
+    #set font size for dot plot
+    if (dim(allRes@compareClusterResult)[1]>50){
+      font.size=4
+    }else{
+      font.size=9
+    }
+    
+    #draw dot plot
+    if (dim(allRes@compareClusterResult)[1]>0){
+      dot_plot_file = file.path(outDir, paste0(file_name, ".pdf"))
+      x = enrichplot::dotplot (allRes,
+                               showCategory = maxCategory,
+                               font.size=font.size)
+      ggplot2::ggsave(filename = dot_plot_file,
+                      dpi = 600,
+                      device = "pdf",
+                      width = 20,
+                      height = 20)
+    }
+    
+    #return: a list containing enrichment results for all clusters, simplify enrich. results
+    return(list(allRes,
+                allRes_simplify,
+                enrichment_table,
+                enrichment_table_simplify))			
   }
-  
-  #set font size for dot plot
-  if (dim(allRes@compareClusterResult)[1]>50){
-    font.size=4
-  }else{
-    font.size=9
-  }
-  
-  #draw dot plot
-  if (dim(allRes@compareClusterResult)[1]>0){
-    dot_plot_file = file.path(outDir, paste0(file_name, ".pdf"))
-    x = enrichplot::dotplot (allRes,
-                             showCategory = maxCategory,
-                             font.size=font.size)
-    ggplot2::ggsave(filename = dot_plot_file,
-                    dpi = 600,
-                    device = "pdf",
-                    width = 20,
-                    height = 20)
-  }
-  
-  #return: a list containing enrichment results for all clusters, simplify enrich. results
-  return(list(allRes,
-              allRes_simplify,
-              enrichment_table,
-              enrichment_table_simplify))														
 }
 
 process_clusterprofiler_results_table = function(clusterprofiler_results_table) {
@@ -2378,6 +2412,347 @@ generat_urls<-function(allRes,gene2ko){
   temp_table$URL=apply(X = temp_table,MARGIN = 1,FUN = function(x) paste(c("http://www.kegg.jp/kegg-bin/show_pathway?",stringi::stri_replace_all(str = x["ID"],replacement = "",regex = "path:",collapse = ""),"/", paste(sapply( unlist(stringi::stri_split(str = x["geneID"],regex = "/")),FUN = function(x) gene2ko[gene2ko$V1==x,"V2"]),collapse = "+") ),collapse = ""))
   allRes@compareClusterResult=temp_table
   return(allRes)
+}
+
+ridgeplot_edited <- function(x, showCategory=30, fill="p.adjust",
+                             core_enrichment = TRUE, label_format = 30,
+                             orderBy = "NES", decreasing = FALSE, x_axis_title, file,
+                             values_for_x_axis=c(),
+                             xlimits=c()) {
+  #function modified from:
+  #https://rdrr.io/github/GuangchuangYu/enrichplot/src/R/ridgeplot.R
+  
+  #the "fill" parameter can be one of "pvalue", "p.adjust", "qvalue"
+  
+  #the "values_for_x_axis" parameter is used for cases where the GSEA was done using p-values for ranking,
+  #but the user wants the ridgeplot to show FC values on the X-axis.
+  #values_for_x_axis has the form of a named vector, with gene IDs as names and log2FC values as elements
+  #(the same format as the input to GSEA)
+  
+  #preparations
+  
+  if (!is(x, "gseaResult"))
+    stop("currently only support gseaResult")
+  
+  ## fill <- match.arg(fill, c("pvalue", "p.adjust", "qvalue"))
+  if (fill == "qvalue") {
+    fill <- "qvalues"
+  }
+  if (!fill %in% colnames(x@result)) {
+    stop("'fill' variable not available ...")
+  }
+  
+  ## geom_density_ridges <- get_fun_from_pkg('ggridges', 'geom_density_ridges')
+  if (orderBy !=  'NES' && !orderBy %in% colnames(x@result)) {
+    message('wrong orderBy parameter; set to default `orderBy = "NES"`')
+    orderBy <- "NES"
+  }
+  
+  #create a list of top n pathways, where each pathway points to all/core genes in that pathway.
+  
+  n <- showCategory
+  if (core_enrichment) {
+    gs2id <- geneInCategory(x)[seq_len(n)]
+  } else {
+    gs2id <- x@geneSets[x$ID[seq_len(n)]]
+    ridgeplot_data_file = str_replace (file, pattern = "\\.png$", replacement = "_data.csv")
+    file = str_replace (file, pattern = "\\.png$", replacement = "_allGenes.png")
+  }
+  
+  #create a list of top n pathways, where each pathway points to a named vector with genes as names
+  #and ranking values (FC, p-value or signed p-value) as elements.
+  #the ranking values are taken either from the GSEA result (stored in x@geneList, which contains the input to GSEA)
+  #or a named vector that was passed as argument to the ridgeplot_edited function.
+  
+  #original code:
+  # gs2val <- lapply(gs2id, function(id) {
+  #   res <- x@geneList[id]
+  #   res <- res[!is.na(res)]
+  # })
+  #Vered 27.12.2023, to enable plotting FC on the X-axis:
+
+  if (length(values_for_x_axis) > 0) {
+    genes2values = values_for_x_axis
+  } else {
+    genes2values = x@geneList
+  }
+  
+  gs2val <- lapply(gs2id, function(id) {
+    res <- genes2values[id]
+    res <- res[!is.na(res)]
+  })
+   
+  #create vector of pathway titles
+  
+  #x$ID is the list of pathways in x, which may be larger or smaller than nn.
+  #nn length is the same as showCategory
+  nn <- names(gs2val)
+  i <- match(nn, x$ID)   #similar to nn %>% x$ID 
+  nn <- x$Description[i] #vector of pathway titles with length of showCategory
+  
+  #order pathways (actually, pathway indexes) by orderBy (default: by NES)
+  # j <- order(x$NES[i], decreasing=FALSE)
+  j <- order(x@result[[orderBy]][i], decreasing = decreasing)
+  #create a named vector where each pathway points to the no. of (core) genes in that pathway
+  len <- sapply(gs2val, length)
+  
+  #create a table (data frame) with columns: category (pathway), color, value, where row names are pathway.gene
+  gs2val.df <- data.frame(category = rep(nn, times=len),         #here the pathways are still the first 30 pathways according to pvalue       
+                          color = rep(x[i, fill], times=len),
+                          value = unlist(gs2val))                #Vered, need to check here
+  
+  #convert p.adjust to -log10(p.adjust)
+  gs2val.df = mutate(gs2val.df, color = -log10(color))
+  
+  #this changes the column name "color" to the argument "fill" (which is either "pvalue", "p.adjust" or "qvalue")
+  colnames(gs2val.df)[2] <- fill
+  
+  #??
+  gs2val.df$category <- factor(gs2val.df$category, levels=nn[j])  #this probably orders the levels of the factor
+  
+  #label_format
+  label_func <- default_labeller(label_format)
+  if(is.function(label_format)) {
+    label_func <- label_format
+  }
+  
+  #print data behind the ridgeplot
+  
+  gs2val_for_print.df = gs2val.df %>% rownames_to_column(var="name") %>% separate(col=name, into=c("pathway", "gene"), sep="\\.") 
+  ridgeplot_data_file = str_replace (file, pattern = "\\.png$", replacement = "_data.csv")
+  print (ridgeplot_data_file)
+  write.csv(gs2val_for_print.df, file=ridgeplot_data_file, row.names = F)  #here the pathways are still the first 30 pathways according to pvalue, ordered by pvalue  
+  
+  #print ridgeplot
+  
+  fill_title = paste0("-log10(", fill, ")")
+  
+  print (file)
+  png(filename = file, width = 700, height = 700, units = "px")
+  
+  plot = ggplot(gs2val.df, aes_string(x="value", y="category", fill=fill)) +
+    ggridges::geom_density_ridges() +
+    ## scale_x_reverse() +
+    scale_fill_continuous(low="blue", high="red", name = fill_title,
+                          guide=guide_colorbar(reverse=F)) +
+    scale_y_discrete(labels = label_func) +
+    ## scale_fill_gradientn(name = fill, colors=sig_palette, guide=guide_colorbar(reverse=TRUE)) +
+    ## geom_vline(xintercept=0, color='firebrick', linetype='dashed') +
+    xlab(x_axis_title) + ylab(NULL) +  theme_dose()
+  
+  if (length(xlimits)>0) {
+    plot = plot + xlim(xlimits[1], xlimits[2])
+  }
+  
+  print(plot)
+  dev.off()
+  
+}
+
+ridgeplot_edited1 <- function(x, showCategory=30, fill="p.adjust",
+                             core_enrichment = TRUE, label_format = 30,
+                             orderBy = "NES", decreasing = FALSE, x_axis_title, file,
+                             values_for_x_axis=c(),
+                             xlimits=c()) {
+  
+  #this function should replace the function ridgeplot_edited. Just, before replacing test it on GSEA results
+  
+  #function modified from:
+  #https://rdrr.io/github/GuangchuangYu/enrichplot/src/R/ridgeplot.R
+  
+  #the "fill" parameter can be one of "pvalue", "p.adjust", "qvalue"
+  
+  #the "values_for_x_axis" parameter is used for cases where the GSEA was done using p-values for ranking,
+  #but the user wants the ridgeplot to show FC values on the X-axis.
+  #values_for_x_axis has the form of a named vector, with gene IDs as names and log2FC values as elements
+  #(the same format as the input to GSEA)
+  
+  #preparations
+  
+  if (!fill %in% colnames(x@result)) {
+    stop("'fill' variable not available ...")
+  }
+  
+  if (!orderBy %in% colnames(x@result)) {
+    stop ("'orderBy' variable not available ...")
+  }
+  
+  #create a list of top n pathways, where each pathway points to all/core genes in that pathway.
+  
+  n <- showCategory
+  if (core_enrichment) {
+    gs2id <- geneInCategory(x)[seq_len(n)]
+    if(length(x$ID) < n) {   #Vered 4.2.2024 necessary for when res is a result of enrichResult (simple enrichment)
+      gs2id = gs2id[x$ID]
+    }
+  } else {
+    gs2id <- x@geneSets[x$ID[seq_len(n)]]
+    ridgeplot_data_file = str_replace (file, pattern = "\\.png$", replacement = "_data.csv")
+    file = str_replace (file, pattern = "\\.png$", replacement = "_allGenes.png")
+  }
+  
+  #create a list of top n pathways, where each pathway points to a named vector with genes as names
+  #and ranking values (FC, p-value or signed p-value) as elements.
+  #the ranking values are taken either from the GSEA result (stored in x@geneList, which contains the input to GSEA)
+  #or a named vector that was passed as argument to the ridgeplot_edited function.
+  
+  #original code:
+  # gs2val <- lapply(gs2id, function(id) {
+  #   res <- x@geneList[id]
+  #   res <- res[!is.na(res)]
+  # })
+  #Vered 27.12.2023, to enable plotting FC on the X-axis:
+  
+  if (length(values_for_x_axis) > 0) {
+    genes2values = values_for_x_axis
+  } else {
+    genes2values = x@geneList
+  }
+  
+  gs2val <- lapply(gs2id, function(id) {
+    res <- genes2values[id]
+    res <- res[!is.na(res)]
+  })
+  
+  #create vector of pathway titles
+  
+  #x$ID is the list of pathways in x, which may be larger or smaller than nn.
+  #nn length is the same as showCategory
+  nn <- names(gs2val)
+  i <- match(nn, x$ID)   #similar to nn %>% x$ID 
+  nn <- x$Description[i] #vector of pathway titles with length of showCategory
+  
+  #order pathways (actually, pathway indexes) by orderBy (default: by NES)
+  # j <- order(x$NES[i], decreasing=FALSE)
+  j <- order(x@result[[orderBy]][i], decreasing = decreasing)
+  #create a named vector where each pathway points to the no. of (core) genes in that pathway
+  len <- sapply(gs2val, length)
+  
+  #create a table (data frame) with columns: category (pathway), color, value, where row names are pathway.gene
+  gs2val.df <- data.frame(category = rep(nn, times=len),         #here the pathways are still the first 30 pathways according to pvalue       
+                          color = rep(x[i, fill], times=len),
+                          value = unlist(gs2val))                #Vered, need to check here
+  
+  #convert p.adjust to -log10(p.adjust)
+  gs2val.df = mutate(gs2val.df, color = -log10(color))
+  
+  #this changes the column name "color" to the argument "fill" (which is either "pvalue", "p.adjust" or "qvalue")
+  colnames(gs2val.df)[2] <- fill
+  
+  #??
+  gs2val.df$category <- factor(gs2val.df$category, levels=nn[j])  #this probably orders the levels of the factor
+  
+  #label_format
+  label_func <- default_labeller(label_format)
+  if(is.function(label_format)) {
+    label_func <- label_format
+  }
+  
+  #print data behind the ridgeplot
+  
+  gs2val_for_print.df = gs2val.df %>% rownames_to_column(var="name") %>% separate(col=name, into=c("pathway", "gene"), sep="\\.") 
+  ridgeplot_data_file = str_replace (file, pattern = "\\.png$", replacement = ".csv")
+  print (ridgeplot_data_file)
+  write.csv(gs2val_for_print.df, file=ridgeplot_data_file, row.names = F)  #here the pathways are still the first 30 pathways according to pvalue, ordered by pvalue  
+   
+  #print ridgeplot
+  
+  fill_title = paste0("-log10(", fill, ")")
+  
+  print (file)
+  png(filename = file, width = 700, height = 700, units = "px")
+  
+  plot = ggplot(gs2val.df, aes_string(x="value", y="category", fill=fill)) +
+    ggridges::geom_density_ridges() +
+    ## scale_x_reverse() +
+    scale_fill_continuous(low="blue", high="red", name = fill_title,
+                          guide=guide_colorbar(reverse=F)) +
+    scale_y_discrete(labels = label_func) +
+    ## scale_fill_gradientn(name = fill, colors=sig_palette, guide=guide_colorbar(reverse=TRUE)) +
+    ## geom_vline(xintercept=0, color='firebrick', linetype='dashed') +
+    xlab(x_axis_title) + ylab(NULL) +  theme_dose()
+  
+  if (length(xlimits)>0) {
+    plot = plot + xlim(xlimits[1], xlimits[2])
+  }
+  
+  print(plot)
+  dev.off()
+  
+}
+
+draw_ridgeplot_per_cluster = function (clust_method, clust_round, cluster_name, values_for_x_axis, ridgeplot_file, TERM2NAME,TERM2GENE, pvalueCutoff=0.05, pAdjustMethod='fdr') {
+  clusters = gene_lists[[clust_method]][[clust_round]]
+  genes_having_pathway=unique(TERM2GENE[,2])
+  genes_in_cluster = get_genes_per_cluster(clusters, cluster_name)
+  Genes = intersect(genes_in_cluster, genes_having_pathway)
+  
+  res=enricher(Genes,
+               TERM2GENE     = TERM2GENE, 
+               TERM2NAME     = TERM2NAME,
+               minGSSize     = 0,
+               #maxGSSize    = length(genes_having_pathway),
+               maxGSSize     = 10000,
+               pAdjustMethod = pAdjustMethod,
+               pvalueCutoff  = pvalueCutoff,
+               qvalueCutoff  = 1
+  )
+  
+  if(length(res$ID) > 0) {
+    #show DE genes only
+    ridgeplot_edited1 (res, x_axis_title = x_axis_title, file = ridgeplot_file, values_for_x_axis = values_for_x_axis, orderBy = "pvalue", decreasing = T)  # showCategory = 20 (default is 30)
+    #show all genes
+    ridgeplot_edited1 (res, x_axis_title = x_axis_title, file = ridgeplot_file, values_for_x_axis = values_for_x_axis, orderBy = "pvalue", decreasing = T, core_enrichment = F)  
+  } else {
+    print ("No enrichment")
+  }
+}
+
+ep_str_wrap <- function(string, width) {
+  #utility function from
+  #https://rdrr.io/bioc/enrichplot/src/R/utilities.R
+  
+  #' ep_str_wrap internal string wrapping function
+  #' @param string the string to be wrapped
+  #' @param width the maximum number of characters before wrapping to a new line
+  #' @noRd
+  x <- gregexpr(' ', string)
+  vapply(seq_along(x),
+         FUN = function(i) {
+           y <- x[[i]]
+           n <- nchar(string[i])
+           len <- (c(y,n) - c(0, y)) ## length + 1
+           idx <- len > width
+           j <- which(!idx)
+           if (length(j) && max(j) == length(len)) {
+             j <- j[-length(j)]
+           }
+           if (length(j)) {
+             idx[j] <- len[j] + len[j+1] > width
+           }
+           idx <- idx[-length(idx)] ## length - 1
+           start <- c(1, y[idx] + 1)
+           end <- c(y[idx] - 1, n)
+           words <- substring(string[i], start, end)
+           paste0(words, collapse="\n")
+         },
+         FUN.VALUE = character(1)
+  )
+}
+
+
+default_labeller <- function(n) {
+  #utility function from
+  #https://rdrr.io/bioc/enrichplot/src/R/utilities.R
+  #' default_labeller
+  #'
+  #' default labeling function that uses the
+  #' internal string wrapping function `ep_str_wrap`
+  #' @noRd
+  function(str){
+    str <- gsub("_", " ", str)
+    ep_str_wrap(str, n)
+  }
 }
 
 ##### Utilities #####

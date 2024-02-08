@@ -10,7 +10,7 @@ set.seed(111)
 
 project_name   = "HFD_Ad"
 
-analysis_round = "Analysis_04"        
+analysis_round = "Analysis_01"        
 
 ##### Gene annotation #####
 
@@ -37,7 +37,7 @@ CALC_INTERACTION = FALSE   #whether or not to calculate interaction (TURE, FALSE
 
 #set DESIGN for contrasts
 
-DESIGN = "~ Batch + Treatment"  #examples: "~ Stage", "~ Batch + Treatment"
+DESIGN = "~ Batch + Diet"  #examples: "~ Stage", "~ Batch + Treatment"
 
 #set DESIGN for interaction
 
@@ -68,7 +68,7 @@ DESEQ_PADJ_CUTOFF_INTERACTION = 1   #e.g. 0.1  Will be neglected if CALC_INTERAC
 #set factors for PCA, heatmap, and excel top rows
 #specify col names from col_data, starting from the factor with the biggest effect
 
-EFFECTS = c("Batch", "Treatment")
+EFFECTS = c("Batch", "Diet")
 
 #normalization method (for visualization)
 NORM_METHOD = 'VSD'  #'VSD' or 'RLOG'
@@ -84,7 +84,7 @@ BATCH_CORR_METHOD = 'sva'   #sva or limma
 #set group factor for the binary pattern calculations and for partition clustering
 #(this is usually the factor that was used for the contrasts)
 
-GROUP = "Treatment"
+GROUP = "Diet"
 
 #set correlation cutoff for binary pattern calculation
 
@@ -104,7 +104,7 @@ NR_TOP_GENES = 5000  #if SHOW_TOP_GENES_IN_HEATMAP is set to FALSE, this paramet
 K_FIXED = 12 #no. of requested clusters. if NA, K_MAX will be used
 K_MAX = 20
 
-GROUP1 = "Treatment"   #usually GROUP will be the main treatment (e.g. diet), and GROUP1 will be another biological factor, e.g. age
+GROUP1 = "Diet"   #usually GROUP will be the main treatment (e.g. diet), and GROUP1 will be another biological factor, e.g. age
 
 #manual clustering
 PERFORM_MANUAL_CLUSTERING = T  #TRUE or FALSE
@@ -123,7 +123,7 @@ FILTER_KEGG_PATHWAYS_BY_TAXON = NA  #provide KEGG taxon (name or ID?) to filter 
 ENRICHMENT_PVAL_CUTOFF = 0.05
 ENRICHMENT_PADJ_METHOD = 'fdr' #options: "holm", "hochberg", "hommel", "bonferroni", "BH", "BY", "fdr", "none"
 #passed to enrichplot::dotplot as argument showCategory
-MAX_TERMS_IN_DOTPLOT = 30  #number of enriched terms to display in dotplot
+MAX_TERMS_IN_DOTPLOT = 20  #number of enriched terms to display in dotplot
 
 ##### Output to Excel #####
 results_all_with_DE = FALSE   #print results in one file with separate tabs for all genes and DE genes, or print results in two files

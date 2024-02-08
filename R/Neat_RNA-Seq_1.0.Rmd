@@ -50,7 +50,9 @@ library(sva)
 library(scater)
 library(enrichplot)
 
-source ("Global_parameters.R")
+library(DOSE)
+
+source ("Global_parameters_adipose.R")
 source ("Functions_for_Neat_RNA-Seq_1.0.R")
 
 ```
@@ -402,6 +404,26 @@ gene_list = get_genes_from_file (file_name, has_header=T)
 
 ```
 
+# OPTIONAL: Subset samples for clustering, visualization and export to excel
+
+```{r samples_subset}
+
+#store original datasets before subsetting
+
+col_data_orig = col_data
+norm_log_counts_orig = norm_log_counts
+norm_counts_orig = norm_counts
+
+#create subsets of the relevant datasets
+
+col_data = col_data %>% filter (Age == "Young") %>% droplevels #modify as needed
+
+samples = row.names(col_data)
+norm_log_counts = norm_log_counts[, samples]   #for clustering and visualization
+norm_counts = norm_counts[, samples]           #for excel output
+
+```
+
 # Hierarchical clustering
 
 ## Heatmap of DE genes any contrast
@@ -617,7 +639,7 @@ for (pattern in patterns) {
 
   #print heatmap
   if (nr_genes <2) next
-  mat2plot = filter_expression_matrix_by_gene_list(norm_log_counts_DE, genes2plot_corr)
+  mat2plot = filter_expression_matrix_by_gene_list(norm_log_counts_DE, genes2plot_corr)  #Vered 25.12.2023 I think the first parameter can also be norm_log_counts, but did not check that
   file_name = paste0 (binary_patterns_dir, "/", "Heatmap_", pattern, ".png")
   title = paste0 ("Pattern ", pattern, " (", nr_genes, " genes)")
   plot_expression_heatmap(mat2plot, EFFECTS, stats_df, col_data, file_name, color_range="red2blue", plot_title=title)
@@ -1308,6 +1330,31 @@ enrichment_results      = list()
 enrichment_table        = list()
 GSEA_enrichment_results = list()
 
+#Prepare ranked gene lists wo filtering (for GSEA and for ridgplots)
+
+ranked_genes = list()
+
+### per contrast
+
+for (contrast in contrasts_data$Contrast_name) {
+
+  cat (contrast, "\n")
+    
+  #by p-value without direction of change
+  ranked_genes[["pval_wo_direction"]][[contrast]]   = create_ranked_genes_by_pval_wo_direction (stats_df, contrast)
+  
+  #by p-value with direction of change
+  ranked_genes[["pval_with_direction"]][[contrast]] = create_ranked_genes_by_pval_with_direction (stats_df, contrast)
+  
+  #by FC
+  ranked_genes[["fc"]][[contrast]] = create_ranked_genes_by_fc (stats_df, contrast)
+}
+
+cat ("Any contrast\n")
+
+#by min p-value in any contrast
+ranked_genes[["pval_wo_direction"]][["any_contrast"]] = get_ranked_genes_by_min_pval_any_contrast (stats_df)
+
 ```
 
 # Enrichment - Fisher's exact test
@@ -1342,15 +1389,54 @@ for (clust_method in names(gene_lists)) {
                                         pvalueCutoff=ENRICHMENT_PVAL_CUTOFF, pAdjustMethod=ENRICHMENT_PADJ_METHOD,
                                         gene2ko=FALSE, maxCategory = MAX_TERMS_IN_DOTPLOT)
         
-    #store enrichment results object for drawing shared genes/pathways for specific clustering rounds
-    enrichment_results [["KEGG"]][[clust_method]][[clust_round]] = allRes[[1]]
-    #store enrichment result table for delivery to Rshiny
-    enrichment_table   [["KEGG"]][[clust_method]][[clust_round]] = allRes[[3]]
-
-    
+    if (length(allRes) !=0) {
+      #store enrichment results object for drawing shared genes/pathways for specific clustering rounds
+      enrichment_results [["KEGG"]][[clust_method]][[clust_round]] = allRes[[1]]
+      #store enrichment result table for delivery to Rshiny
+      enrichment_table   [["KEGG"]][[clust_method]][[clust_round]] = allRes[[3]]
+    } else {
+      cat ("(no enrichment)")
+    }
   }
   cat ("\n")
 }
+
+#draw ridgeplots for selected gene lists/clusters
+    
+ridgeplots_dir = file.path(enrich_results_dir, "ridgeplots") %>% create_dir
+
+print (names(gene_lists))                 #show all options for clust_method
+print (names(gene_lists[[clust_method]])) #show all options for clust_round
+print (sort(unique(clusters)))            #show all options for cluster_name
+print (contrasts_data$Contrast_name)      #show all options for contrast
+
+clust_method = "unified_clusters"
+clust_round  = "4_clusters"
+# cluster_name = "aggravated"
+# contrast     = "Y_Reverse.vs.NC"  #for display of FC in X-axis (it is cluster_specific)
+
+#note - this is analysis-specific. modify as needed
+contrast_per_cluster = c("persistent"     = "HFD.vs.NC",
+                         "reversed"       = "HFD.vs.NC",
+                         "aggravated"     = "Reverse.vs.NC",
+                         "reverse_effect" = "Reverse.vs.HFD")
+
+for (cluster_name in sort(unique(clusters))) {
+  contrast = contrast_per_cluster[cluster_name]
+  print (paste (cluster_name, contrast))
+  
+  ridgeplots_dir1  = file.path(ridgeplots_dir, paste0(clust_method, "_", clust_round)) %>% create_dir
+  
+  #to show FC in x axis
+  ranked_genes_by_fc = ranked_genes[["fc"]][[contrast]]
+  values_for_x_axis = ranked_genes_by_fc
+  
+  ridgeplot_file = file.path(ridgeplots_dir1, paste0(cluster_name, "_X_by_", contrast, ".png"))
+  x_axis_title = "log2(FC)"
+  
+  draw_ridgeplot_per_cluster (clust_method, clust_round, cluster_name, values_for_x_axis, ridgeplot_file, TERM2NAME=Pathway2name,TERM2GENE=Pathway2gene, pvalueCutoff=ENRICHMENT_PVAL_CUTOFF, pAdjustMethod=ENRICHMENT_PADJ_METHOD)
+}
+
 
 ```
 ## OPTIONAL: KEGG plot shared genes among pathways
@@ -1364,6 +1450,8 @@ for (clust_method in names(gene_lists)) {
 
 clust_method = "manual_clustering"
 clust_round =  "FC1.2"
+#or:
+#enrichment_result = enrichment_results[["KEGG"]][["contrasts"]][["M_Reverse.vs.NC"]]
 
 enrichment_result  = enrichment_results[["KEGG"]][[clust_method]][[clust_round]]
 enrichment_data    = enrichment_result@compareClusterResult
@@ -1462,35 +1550,6 @@ heatmaps = plot_shared_genes (enrichment_data, enrich_results_dir3, GO_type_titl
 
 #    Enrichment - GSEA
 
-## Prepare ranked gene lists wo filtering
-    
-```{r prepare gene lists}
-
-ranked_genes = list()
-
-### per contrast
-
-for (contrast in contrasts_data$Contrast_name) {
-
-  cat (contrast, "\n")
-    
-  #by p-value without direction of change
-  ranked_genes[["pval_wo_direction"]][[contrast]]   = create_ranked_genes_by_pval_wo_direction (stats_df, contrast)
-  
-  #by p-value with direction of change
-  ranked_genes[["pval_with_direction"]][[contrast]] = create_ranked_genes_by_pval_with_direction (stats_df, contrast)
-  
-  #by FC
-  ranked_genes[["fc"]][[contrast]] = create_ranked_genes_by_fc (stats_df, contrast)
-}
-
-cat ("Any contrast\n")
-
-#by min p-value in any contrast
-ranked_genes[["pval_wo_direction"]][["any_contrast"]] = get_ranked_genes_by_min_pval_any_contrast (stats_df)
-
-```
-
 ## GSEA - KEGG
 
 ```{r KEGG enrichmentl GSEA}
@@ -1501,8 +1560,10 @@ GSEA_results_dir  = file.path(GSEA_results_main_dir, "KEGG") %>% create_dir
 
 for (ranking_method in names(ranked_genes)) {
   cat (ranking_method, "\n")
+  GSEA_results_dir1 = file.path(GSEA_results_dir, paste0("ranking_by_", ranking_method)) %>% create_dir
   for (contrast in names(ranked_genes[[ranking_method]])) {
     cat (contrast, "\n")
+    GSEA_results_dir2 = file.path(GSEA_results_dir1, contrast) %>% create_dir
     ranked_genes_to_analyze = ranked_genes[[ranking_method]][[contrast]]
     
     nr_total_genes = length(unique(Pathway2gene[,2]))  #no. of genes having assigned pathways
@@ -1520,9 +1581,139 @@ for (ranking_method in names(ranked_genes)) {
     
     #print results
     GSEA_results = data.frame(res)
-    GSEA_results_dir1 = file.path(GSEA_results_dir, paste0("ranking_by_", ranking_method)) %>% create_dir
-    GSEA_results_file = file.path(GSEA_results_dir1, paste0 ("GSEA_results_", contrast, ".csv"))
+    GSEA_results_file = file.path(GSEA_results_dir2, paste0 ("GSEA_results_", contrast, ".csv"))
     write.csv(GSEA_results, file=GSEA_results_file, row.names = F)
+    
+    #print ridge plots
+    
+    if (nrow(GSEA_results) > 0) {
+      
+      #print the default ridge plot (where x-axis shows the ranking value used for GSEA)
+      
+      #set x-axis title
+      x_axis_title = ""
+      if (ranking_method == "fc") {
+        x_axis_title = "log2(FC)"
+      } else if (ranking_method == "pval_wo_direction") {
+        x_axis_title = "-log10(p-value)"
+      } else if (ranking_method == "pval_with_direction") {
+        x_axis_title = "-log10(p-value), signed"
+      }
+      #ridgeplot_file = file.path(GSEA_results_dir2, paste0 ("Ridgeplot_", contrast, ".png"))
+      ridgeplot_file = file.path(GSEA_results_dir2, "Ridgeplot.png")
+      ridgeplot_edited (res, x_axis_title = x_axis_title, file = ridgeplot_file)  # showCategory = 20 (default is 30)
+      ridgeplot_edited (res, x_axis_title = x_axis_title, file = ridgeplot_file, core_enrichment = F)  
+      
+      #print ridge plot where ranking method for GSEA used p-values but x-axis on plot is log2FC
+      
+      if (ranking_method != "fc" & contrast != "any_contrast") {
+        ranked_genes_by_fc = ranked_genes[["fc"]][[contrast]]
+        x_axis_title = "log2(FC)"
+        #ridgeplot_file = file.path(GSEA_results_dir2, paste0 ("Ridgeplot_", contrast, "_show_FC.png"))
+        ridgeplot_file = file.path(GSEA_results_dir2, "Ridgeplot_showFC.png")
+        ridgeplot_edited (res, x_axis_title = x_axis_title, file = ridgeplot_file, values_for_x_axis = ranked_genes_by_fc)  # showCategory = 20 (default is 30)
+        ridgeplot_edited (res, x_axis_title = x_axis_title, file = ridgeplot_file, values_for_x_axis = ranked_genes_by_fc, core_enrichment = F)  
+      }
+      
+      #print ridge plot as above, but with limited x-axis
+      
+      if (ranking_method != "fc" & contrast != "any_contrast") {
+        ranked_genes_by_fc = ranked_genes[["fc"]][[contrast]]
+        x_axis_title = "log2(FC)"
+        #ridgeplot_file = file.path(GSEA_results_dir2, paste0 ("Ridgeplot_", contrast, "_show_FC.png"))
+        ridgeplot_file = file.path(GSEA_results_dir2, "Ridgeplot_showFC_1.png")
+        ridgeplot_edited (res, x_axis_title = x_axis_title, file = ridgeplot_file, values_for_x_axis = ranked_genes_by_fc, xlimits = c(-1,1))  # showCategory = 20 (default is 30)
+        ridgeplot_edited (res, x_axis_title = x_axis_title, file = ridgeplot_file, values_for_x_axis = ranked_genes_by_fc, core_enrichment = F, xlimits = c(-1,1))  
+      }
+      
+      
+    }
+    
+    # #print heatplot - did not produce nice results
+    # #see example result here: https://yulab-smu.top/biomedical-knowledge-mining-book/enrichplot.html
+    # 
+    # if (nrow(GSEA_results) > 0) {
+    #   heatplot(res, foldChange=ranked_genes_by_fc, showCategory=30)
+    # }
+    
+    #print GSEA plots
+
+    # #specify requested analysis (example) - for testing
+    # term_db        = "KEGG"               #KEGG, GO_BP, GO_MF, GO_CC
+    # ranking_method = "pval_wo_direction"  #"pval_wo_direction", "pval_with_direction", "fc"
+    # contrast       = "M_Reverse.vs.NC"    #for method "pval_wo_direction there is also "any_contrast"
+ 
+    #results dir
+    GSEA_plots_dir        = file.path(GSEA_results_dir2, "GSEA_plots") %>% create_dir
+    Heatmaps_dir1         = file.path(GSEA_results_dir2, "Heatmaps_core_genes") %>% create_dir
+    Heatmaps_dir2         = file.path(GSEA_results_dir2, "Heatmaps_all_genes") %>% create_dir
+    Excel_per_pathway_dir = file.path(GSEA_results_dir2, "Excels_core_genes") %>% create_dir
+    
+    #draw GSEA plots - loop over enriched pathways
+
+    if (length(res$ID)>0) {
+      for (pathway_nr in 1:length(res$ID)) {
+        pathway_id    = res$ID[pathway_nr]
+        pathway_id1   = unlist(stringi::stri_split(str = pathway_id, fixed =":") )[2]
+        pathway_title = res$Description[pathway_nr]
+        
+        #cat(pathway_id1, " ", pathway_title, "\n")
+        
+        #GSEA plot
+        png (filename = file.path(GSEA_plots_dir, paste0(pathway_id1, ".png")))
+        plot = gseaplot2(res, geneSetID = pathway_nr, title = pathway_title) #the geneSetID argument can also be pathway ID, e.g. "path:mmu04714"
+        print(plot)
+        dev.off()
+        
+        #Heatmap core genes
+        
+        #get leading edge genes
+        leading_edge_genes = res$core_enrichment[pathway_nr] %>% stringi::stri_split(regex = "/") %>% unlist
+        genes_in_pathway = res@geneSets[res$ID[pathway_nr]]
+        #get norm_log_counts counts
+        mat2plot_le = filter_expression_matrix_by_gene_list (norm_log_counts, leading_edge_genes)
+        #construct graph title
+        nr_genes = length(leading_edge_genes)
+        title = paste0("Leading edge genes in ", pathway_title, " (n=", nr_genes, ")")
+        #plot_heatmap
+        file_name = file.path(Heatmaps_dir1, paste0(pathway_id1, ".png"))
+        pheatmap_data_core_genes = plot_expression_heatmap(mat2plot_le, EFFECTS, stats_df, col_data, file_name, color_range="red2blue", plot_title=title)
+        
+        #Heatmap all genes
+        
+        #get leading edge genes
+        genes_in_pathway = res@geneSets[res$ID[pathway_nr]] %>% unlist
+        #get norm_log_counts counts
+        mat2plot_p = filter_expression_matrix_by_gene_list (norm_log_counts, genes_in_pathway)
+        #construct graph title
+        nr_genes = length(genes_in_pathway)
+        title = paste0("All genes in ", pathway_title, " (n=", nr_genes, ")")
+        #plot_heatmap
+        file_name = file.path(Heatmaps_dir2, paste0(pathway_id1, ".png"))
+        pheatmap_data_all_genes = plot_expression_heatmap(mat2plot_p, EFFECTS, stats_df, col_data, file_name, color_range="red2blue", plot_title=title)
+        
+        #Gene details (leading edge genes) per pathway in Excel
+        
+        orig_genes = row.names(mat2plot_le)
+        ordered_genes = orig_genes[pheatmap_data_core_genes$tree_row$order]  #order genes by hierarchical clustering order
+        res_df2write_DE <- res_df2write[ordered_genes,] %>% select (-starts_with ("manual_cutoffs"))  #add expression and statistics data
+        # Add manual cluster
+        clustering_result = man_clusters_opt1_ordered                      #specify clustering object (named vector)
+        clustering_result = gene_lists[["manual_clustering"]][["FC1.2"]]   #or choose from gene_lists
+        man_clusters_df = make_data_frame_from_clusters(clustering_result) %>% setNames(c("gene", "manual_cluster"))
+        res_df2write_DE1 = left_join(x=res_df2write_DE, y=man_clusters_df, by="gene")
+        # Add Z-score data
+        zscore <- z_score(norm_log_counts)
+        colnames(zscore) <- zscore %>% colnames %>% paste0(.,".zscore")
+        zscore <- zscore %>% as_tibble(rownames = "gene") 
+        res_df2write_DE2 = left_join(x=res_df2write_DE1, y=zscore, by="gene")
+        #print table
+        file_name_csv = file.path (Excel_per_pathway_dir, paste0(pathway_id1, ".csv"))
+        write.csv(res_df2write_DE2, file_name_csv, na="")
+      } 
+      
+    }
+
   }
 }
 ```
@@ -1626,7 +1817,8 @@ mat2plot_le = filter_expression_matrix_by_gene_list (norm_log_counts, leading_ed
 nr_genes = length(leading_edge_genes)
 title = paste0("Leading edge genes in ", pathway_title, " (n=", nr_genes, ")")
 #plot_heatmap
-file_name = file.path (pathway_results_dir1, paste0(pathway_id1, "_GSEA_LE_genes_heatmap.png"))
+#file_name = file.path (pathway_results_dir1, paste0(pathway_id1, "_GSEA_LE_genes_heatmap.png"))
+file_name = file.path (pathway_results_dir1, paste0(pathway_id1, "_LE_genes_heatmap.png"))
 pheatmap_data_gene_list = plot_expression_heatmap(mat2plot_le, EFFECTS, stats_df, col_data, file_name, color_range="red2blue", plot_title=title)
 
 #create gene info table for printing
@@ -1645,7 +1837,8 @@ colnames(zscore) <- zscore %>% colnames %>% paste0(.,".zscore")
 zscore <- zscore %>% as_tibble(rownames = "gene") 
 res_df2write_DE2 = left_join(x=res_df2write_DE1, y=zscore, by="gene")
 #print table
-file_name_csv = file.path (pathway_results_dir1, paste0(pathway_id1, "_GSEA_LE_genes_info.csv"))
+#file_name_csv = file.path (pathway_results_dir1, paste0(pathway_id1, "_GSEA_LE_genes.csv"))
+file_name_csv = file.path (pathway_results_dir1, paste0(pathway_id1, "_LE_genes.csv"))
 write.csv(res_df2write_DE2, file_name_csv, na="")
 
 ```
