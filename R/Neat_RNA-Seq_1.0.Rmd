@@ -40,6 +40,7 @@ library(htmlwidgets)
 library(factoextra) 
 library(cowplot)
 library(ggplot2)
+library(listenv)
 
 library(DESeq2)
 library(tximport)
@@ -52,8 +53,9 @@ library(enrichplot)
 
 library(DOSE)
 
-source ("Global_parameters_adipose.R")
-source ("Functions_for_Neat_RNA-Seq_1.0.R")
+source ("Global_parameters_adipose_final_for_Git.R")
+source ("Functions_for_Neat_RNA-Seq_1.0_final_for_Git.R")
+source ("Functions_for_clustering_and_enrichment_1.0_final_for_Git.R")
 
 ```
 # Preparations
@@ -653,7 +655,7 @@ gene_lists[["binary_patterns"]][[clustering_instance]] = binary_pattern_clusters
 ```
 # Partition clustering
 
-## Do clustering and plot cluster profiles
+## Do clustering
 
 ```{r heatmaps_DeSeq2_module}
 
@@ -664,112 +666,31 @@ gene_lists[["binary_patterns"]][[clustering_instance]] = binary_pattern_clusters
 #them draw hierarchical clustering per cluster
 #present heatmap + average expression profile per cluster
 
-#preparations
-
 #get norm_log_counts counts for DE genes
 mat2plot = filter_expression_matrix_by_gene_list (norm_log_counts, top_DE_genes)
 
-#construct graph title
-nr_genes = length(top_DE_genes)
-if (SHOW_TOP_GENES_IN_HEATMAP) {
-  title = paste0("Partitionn clustering of top DE genes (n=", nr_genes, ")")
-} else {
-  title = paste0("Partition clustering of DE genes (n=", nr_genes, ")")
-}
+#perform partition clustering
 
-#compute group means
-#assuming that col order in mat2plot is the same as row order in col_data
-mat2plot_means = mat2plot %>%
-                 t %>%
-                 aggregate.data.frame(by = col_data[GROUP],FUN = mean) %>%
-                 remove_rownames %>%
-                 column_to_rownames(var=GROUP) %>%
-                 as.data.frame() %>%
-                 t
+New_clusters = perform_partition_clustering (mat2plot, col_data, clustering_dir)
 
-# Z-scoring: scale expression data by row
-mat2plot_means_scaled <- z_score(mat2plot_means)
+#print clustering summary
 
-#clustering of all DE genes using group means
-#use group averages
-#use the gap algorithm to determine the number of clusters
-#this will run hierarchical clustering and then cut the tree to discrete clusters using the determined no. of clusters
-#it is possible to manually determine the no. of clusters using the k parameter
-#need to feed in scaled data by row, because the stand parameter in eclust scales the data by column which is bad
-
-if (!is.na(K_FIXED)) {
-  #clustering with setting no. of clusters
-  Clustering <- eclust(as.matrix(mat2plot_means_scaled),
-                       stand = F,
-                       FUNcluster= "hclust",
-                       hc_metric = "pearson",
-                       graph = F,  #should be FALSE
-                       hc_method = "ward.D2",
-                       #k.max =  k.max,
-                       k = K_FIXED
-  )
-} else {
-  gap_maxSE_method = "firstSEmax"
-  gap_maxSE_SE.factor = 1 #eclust parameter for determining the number of clusters [Not For Mclust]. higher number is less sensitive. Liron's default is 1
-  
-  Clustering <- eclust(as.matrix(mat2plot_means_scaled),
-                       stand = F,
-                       FUNcluster= "hclust",
-                       hc_metric = "pearson",
-                       graph = F,  #should be FALSE
-                       hc_method = "ward.D2",
-                       k.max =  K_MAX,
-                       nboot = 10,          #no. bootstrap. consider increasing. Liron's default is 10
-                       gap_maxSE = list(method= gap_maxSE_method, SE.factor = gap_maxSE_SE.factor)
-  )
-}
-
-Clustering$nbclust
-Clustering$size
-
-head(Clustering$cluster)
-head(Clustering$data)
+table(New_clusters)  
 
 #specify output files. directory name will include no. of clusters
-nr_clusters = Clustering$nbclust
+nr_clusters = length(unique(New_clusters))
 clustering_title = paste0("Partition_clustering_", nr_clusters, "_clusters")
 partition_clustering_dir = file.path (clustering_dir, clustering_title) %>% create_dir
 
 cluster_profiles_file  = file.path (partition_clustering_dir, "cluster_profiles.pdf")
 heatmap_file_name      = file.path (partition_clustering_dir, "Partition_clustering_heatmap.png")
+```
 
-#get "clusters": array where element names are genes and values are cluster no. not re-ordered by clustering.
-clusters=Clustering$cluster
+##Plot cluster profiles
 
-#hierarchical clustering at the group average level of each cluster separately
-#this is then concatenated to create clustering order in all the DE genes (by group averages)
-#the result is used by Liron to draw the heatmap of the averages, but I did not implement it.
+```{r plot_cluster_profiles}
 
-New_clusters=c()
-for (num in sort(unique(clusters))){
-  res_red=unique(names(clusters))
-  Genes=res_red[res_red  %in% names(clusters[clusters %in% num])]
-  if (length(Genes)>1){
-    
-    heat_map=pheatmap(mat = as.matrix(mat2plot_means[Genes,]),   #mat2plot_means_Z_score
-                      cluster_rows = T,
-                      show_rownames=F,
-                      clustering_distance_rows = "correlation" ,
-                      clustering_method="ward.D2",
-                      cluster_cols = F,
-                      silent = F,   #to display the graph, comment this line and don't assign to Heat_map, just run pheatmap
-                      scale = "row" #should be "row"
-                      )
-    
-    New_clusters=c(New_clusters,clusters[heat_map$tree_row$labels[heat_map$tree_row$order]])
-  }else{
-    New_clusters=c(New_clusters,clusters[Genes])
-  }
-}
-
-#generation and plotting of average expression profile per cluster
-
-table(New_clusters)  #print clustering summary
+#plot  average expression profile per cluster
 
 #plot graphs without smoothing, but with error bars
 Clustering_Plot1 = plot_cluster_profiles(New_clusters, mat2plot, col_data, c(GROUP1,GROUP),c(GROUP1,GROUP,"Normalized counts"), smooth=F, X_AXIS_ORDER=unique(col_data[GROUP]), out_file = cluster_profiles_file)
@@ -779,7 +700,15 @@ Clustering_Plot1 = plot_cluster_profiles(New_clusters, mat2plot, col_data, c(GRO
 
 ```{r heatmap of pre computed clusters}
 
-partition_clusters = plot_expression_heatmap_for_precomputed_clusters (mat2plot, New_clusters, EFFECTS, GROUP, GROUP1, col_data, heatmap_file_name, plot_title = title)
+#construct graph title
+nr_genes = nrow(mat2plot)
+if (SHOW_TOP_GENES_IN_HEATMAP) {
+  title = paste0("Partitionn clustering of top DE genes (n=", nr_genes, ")")
+} else {
+  title = paste0("Partition clustering of DE genes (n=", nr_genes, ")")
+}
+
+partition_clusters = plot_expression_heatmap_for_precomputed_clusters (mat2plot, New_clusters, col_data, heatmap_file_name, plot_title = title)
 
 #store clustering results in gene_lists
 clustering_instance = paste0(nr_clusters, "_clusters")  #if you just put cluster number as key, it may be confused with list index
@@ -801,15 +730,12 @@ gene_lists[["partition_clustering"]][[clustering_instance]] = partition_clusters
 
 #NOTE: the code works on 3 biological groups. By default, it takes the first 3 cols of mat2plot_means_scaled, but you may change it in the definition of new_df
 
-new_df = mat2plot_means_scaled[,COLUMNS_FOR_MAN_CLUSTERING] #take first 3 columns of mat2plot_means (you may change it if needed)
-colnames(new_df) = c("A", "B", "C")
+new_df = prepare_generic_df_for_manual_clustering (mat2plot, col_data)
 
-new_df = 
-  new_df %>%
-  as.data.frame %>%
-  rownames_to_column(var="gene") %>%
-  mutate ("B.vs.A" = B - A) %>%
-  mutate ("C.vs.B" = C - B) 
+cluster_def = c(1:9)
+names(cluster_def) = c("up-nc", "up-down", "up-up", "nc-up", "down-nc", "down-up", "down-down", "nc-down", "nc-nc")
+cat ("cluster definiton:\n")
+cluster_def
 
 ```
 
@@ -823,47 +749,8 @@ new_df =
 
 #this is done on the results of the last partition clustering performed
 
-partition_clusters_df = make_data_frame_from_clusters(partition_clusters)
-new_df0 = merge (partition_clusters_df, new_df, by.x="gene", by.y="gene")
-row.names(new_df0) = new_df0$gene
-new_df0 = new_df0[partition_clusters_df$gene,]  #sort lines by order of genes in partition_clusters
+analyze_partition_clustering_stats (partition_clusters, new_df, partition_clustering_dir)
 
-agg_mean =
-  new_df0 %>%
-  select (-gene) %>%
-  aggregate.data.frame (by=list(Cluster=new_df0$cluster), FUN=mean) %>%
-  mutate (B.vs.A = ifelse(B.vs.A>0,
-                          yes = 2^B.vs.A,
-                          no = -1/(2^B.vs.A))) %>%
-  mutate (C.vs.B = ifelse(C.vs.B>0,
-                          yes = 2^C.vs.B,
-                          no = -1/(2^C.vs.B))) 
-
-agg_min =
-  new_df0 %>%
-  select (-gene) %>%
-  aggregate.data.frame (by=list(Cluster=new_df0$cluster), FUN=min) %>%
-  mutate (B.vs.A = ifelse(B.vs.A>0,
-                          yes = 2^B.vs.A,
-                          no = -1/(2^B.vs.A))) %>%
-  mutate (C.vs.B = ifelse(C.vs.B>0,
-                          yes = 2^C.vs.B,
-                          no = -1/(2^C.vs.B))) 
-
-agg_max =
-  new_df0 %>%
-  select (-gene) %>%
-  aggregate.data.frame (by=list(Cluster=new_df0$cluster), FUN=max) %>%
-  mutate (B.vs.A = ifelse(B.vs.A>0,
-                          yes = 2^B.vs.A,
-                          no = -1/(2^B.vs.A))) %>%
-  mutate (C.vs.B = ifelse(C.vs.B>0,
-                          yes = 2^C.vs.B,
-                          no = -1/(2^C.vs.B)))
-
-export_table(agg_mean, paste0 (partition_clustering_dir, "/Clusters_mean.txt"))
-export_table(agg_min,  paste0 (partition_clustering_dir, "/Clusters_min.txt"))
-export_table(agg_max,  paste0 (partition_clustering_dir, "/Clusters_max.txt"))
 ```
 ## Generate manual clusters - option 1
 
@@ -875,62 +762,48 @@ export_table(agg_max,  paste0 (partition_clustering_dir, "/Clusters_max.txt"))
 
 log_man_clust_FC_cutoff = log2(MAN_CLUST_FC_CUTOFF)
 
-cluster_def = c(1:9)
-names(cluster_def) = c("up-nc", "up-down", "up-up", "nc-up", "down-nc", "down-up", "down-down", "nc-down", "nc-nc")
-cat ("cluster definiton:\n")
-cluster_def
-
 #specify output files
 clust_title = paste0("Manual_clusters_option1_cutoff", MAN_CLUST_FC_CUTOFF)
 manual_clusters_dir_opt1 = file.path (clustering_dir, clust_title) %>% create_dir
-
 man_cluster_profiles_file = file.path (manual_clusters_dir_opt1, "Manual_cluster_profiles.pdf")
 
+man_clusters_opt1 = perform_manual_clustering_option1 (new_df, cluster_def)
+
+cat ("clustering summary:\n")
+table(man_clusters_opt1)  #print clustering summary
+
+
+```
+
+## Plot cluster profiles
+``` {r plot man clusters profiles}
+
+#plot cluster profiles
+#generation and plotting of average expression profile per cluster
+#plot graphs without smoothing, but with error bars
+
+man_clustering_Plot1 = plot_cluster_profiles(man_clusters_opt1, mat2plot, col_data, c(GROUP1,GROUP),c(GROUP1,GROUP,"Normalized counts"), smooth=F, X_AXIS_ORDER=unique(col_data[GROUP]), out_file = man_cluster_profiles_file)
+
+man_clustering_Plot1
+
+```
+
+## Heatmaps of clusters
+
+``` {r plot man clusters heatmap}
+
 #construct graph title for heatmap
-nr_genes = length(top_DE_genes)
+nr_genes = nrow(mat2plot)
 if (SHOW_TOP_GENES_IN_HEATMAP) {
   title = paste0("Manual clustering of top DE genes (n=", nr_genes, ")")
 } else {
   title = paste0("Manual clustering of DE genes (n=", nr_genes, ")")
 }
 
-new_df1 =
-  new_df %>%
-  mutate (B.vs.A_direction = ifelse(B.vs.A > log_man_clust_FC_cutoff,
-                                       yes="up",
-                                       no=ifelse(B.vs.A < -log_man_clust_FC_cutoff,
-                                                  yes="down",
-                                                  no="nc"))) %>%
-  mutate (C.vs.B_direction = ifelse(C.vs.B>log_man_clust_FC_cutoff,
-                                       yes="up",
-                                       no=ifelse(C.vs.B < -log_man_clust_FC_cutoff,
-                                                  yes="down",
-                                                  no="nc"))) %>%
-  mutate (Pattern = paste0(B.vs.A_direction, "-", C.vs.B_direction)) %>%
-  mutate (cluster = cluster_def[Pattern])
-
-#create a clustering object as a named vector
-man_clusters_opt1 <- setNames(as.numeric(new_df1$cluster), new_df1$gene) 
-cat ("clustering summary:\n")
-table(man_clusters_opt1)  #print clustering summary
-
-#plot cluster profiles
-#generation and plotting of average expression profile per cluster
-#plot graphs without smoothing, but with error bars
-man_clustering_Plot1 = plot_cluster_profiles(man_clusters_opt1,mat2plot,col_data, c(GROUP1,GROUP),c(GROUP1,GROUP,"Normalized counts"), smooth=F, X_AXIS_ORDER=unique(col_data[GROUP]), out_file = man_cluster_profiles_file)
-
-man_clustering_Plot1
-
-```
-
-## Heatmaps of manual clusters - option 1
-
-``` {r plot man clusters heatmap}
-
 #plot heatmap of manual clusters and store results
 
 heatmap_file_name = file.path (manual_clusters_dir_opt1, "Manual_clustering_heatmap.png")
-man_clusters_opt1_ordered = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt1, EFFECTS, GROUP, GROUP1, col_data,
+man_clusters_opt1_ordered = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt1, col_data,
                                                                               heatmap_file_name, plot_title = title)
 
 #store in gene_lists
@@ -942,13 +815,13 @@ gene_lists[["manual_clustering"]][[clustering_instance]] = man_clusters_opt1_ord
 
 #plot long heatmap of manual clusters
 heatmap_file_name = file.path (manual_clusters_dir_opt1, "Manual_clustering_heatmap_long.png")
-man_clusters_opt1_ordered1 = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt1, EFFECTS, GROUP, GROUP1, col_data,
+man_clusters_opt1_ordered1 = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt1, col_data,
                                                                               heatmap_file_name, plot_title = title,
                                                                               plot_width=23, plot_height=40, scale=0.7, print_file_per_cluster=F)
 
 #plot long heatmap of manual clusters wo col and row annotation, without sample names and wo dendogram
 heatmap_file_name = file.path (manual_clusters_dir_opt1, "Manual_clustering_heatmap_long_clean.png")
-man_clusters_opt1_ordered2 = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt1, EFFECTS, GROUP, GROUP1, col_data,
+man_clusters_opt1_ordered2 = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt1, col_data,
                                                                               heatmap_file_name, plot_title = title,
                                                                               plot_width=23, plot_height=40, row_annot=F, col_annot=F, show_sample_names=F,
                                                                               show_dend=F, scale=0.7, print_file_per_cluster=F)
@@ -963,28 +836,17 @@ man_clusters_opt1_ordered2 = plot_expression_heatmap_for_precomputed_clusters (m
 
 #IMPORTANT NOTE: contrast names are hard coded below!!! change them to match the experiment at hand
 
-cluster_def = c(1:9)
-names(cluster_def) = c("up-nc", "up-down", "up-up", "nc-up", "down-nc", "down-up", "down-down", "nc-down", "nc-nc")
-cat ("cluster definition:")
-cluster_def
+
 
 #specify output files
 manual_clusters_dir_opt2 = file.path(clustering_dir, "Manual_clusters_option2") %>% create_dir
 
 man_cluster_profiles_file = file.path (manual_clusters_dir_opt2, "Manual_cluster_profiles.pdf")
 
-#construct graph title for heatmap
-nr_genes = length(top_DE_genes)
-if (SHOW_TOP_GENES_IN_HEATMAP) {
-  title = paste0("Manual clustering option 2 of top DE genes (n=", nr_genes, ")")
-} else {
-  title = paste0("Manual clustering option 2 of DE genes (n=", nr_genes, ")")
-}
-
 new_df2 = 
   stats_df %>%
   filter (gene %in% top_DE_genes) %>%
-  select (gene, linearFC.H.vs.L, pvalue.H.vs.L, linearFC.R.vs.H, pvalue.R.vs.H) %>%
+  select (gene, linearFC.HFD.vs.NC, pvalue.HFD.vs.NC, linearFC.Reverse.vs.HFD, pvalue.Reverse.vs.HFD) %>%  ##Hard coded contrast names here. modify as necessary
   setNames (c("gene", "linearFC.B.vs.A", "pvalue.B.vs.A", "linearFC.C.vs.B", "pvalue.C.vs.B")) %>%
   mutate (B.vs.A_direction = ifelse(((!is.na(linearFC.B.vs.A)) & (!is.na(pvalue.B.vs.A)) & (pvalue.B.vs.A < MAN_CLUST_DESEQ_P_CUTOFF)),
           yes=ifelse(linearFC.B.vs.A > MAN_CLUST_DESEQ_FC_CUTOFF,
@@ -1008,6 +870,11 @@ man_clusters_opt2 <- setNames(as.numeric(new_df2$cluster), new_df2$gene)
 cat ("clustering summary:\n")
 table(man_clusters_opt2)  #print clustering summary
 
+```
+
+## Plot cluster profiles
+``` {r plot man clusters profiles}
+
 #plot cluster profiles
 #generation and plotting of average expression profile per cluster
 #plot graphs without smoothing, but with error bars
@@ -1016,14 +883,22 @@ man_clustering_Plot2 = plot_cluster_profiles(man_clusters_opt2, mat2plot,col_dat
 man_clustering_Plot2
 ```
 
-## Heatmaps of manual clusters - option 2
+## Heatmaps of clusters
 
 ``` {r plot man clusters heatmap}
+
+#construct graph title for heatmap
+nr_genes = length(top_DE_genes)
+if (SHOW_TOP_GENES_IN_HEATMAP) {
+  title = paste0("Manual clustering option 2 of top DE genes (n=", nr_genes, ")")
+} else {
+  title = paste0("Manual clustering option 2 of DE genes (n=", nr_genes, ")")
+}
 
 #plot heatmap of manual clusters and store results
 
 heatmap_file_name = file.path (manual_clusters_dir_opt2, "Manual_clustering_heatmap.png")
-man_clusters_opt2_ordered = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt2, EFFECTS, GROUP, GROUP1, col_data, heatmap_file_name, plot_title = title)
+man_clusters_opt2_ordered = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt2, col_data, heatmap_file_name, plot_title = title)
 
 #store in gene_lists
 nr_clusters = length(unique(man_clusters_opt2))
@@ -1034,13 +909,13 @@ gene_lists[["manual_clustering_opt2"]][[clustering_instance]] = man_clusters_opt
 
 #plot long heatmap of manual clusters
 heatmap_file_name = file.path (manual_clusters_dir_opt2, "Manual_clustering_heatmap_long.png")
-man_clusters_opt2_ordered = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt2, EFFECTS, GROUP, GROUP1, col_data,
+man_clusters_opt2_ordered = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt2, col_data,
                                                                               heatmap_file_name, plot_title = title,
                                                                               plot_width=23, plot_height=40, scale=0.7, print_file_per_cluster=F)
 
 #plot long heatmap of manual clusters wo col and row annotation, without sample names and wo dendogram
 heatmap_file_name = file.path (manual_clusters_dir_opt2, "Manual_clustering_heatmap_long_clean.png")
-man_clusters_opt2_ordered = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt2, EFFECTS, GROUP, GROUP1, col_data,
+man_clusters_opt2_ordered = plot_expression_heatmap_for_precomputed_clusters (mat2plot, man_clusters_opt2, col_data,
                                                                               heatmap_file_name, plot_title = title, plot_width=23, plot_height=40,
                                                                               row_annot=F, col_annot=F, show_sample_names=F,
                                                                               show_dend=F, scale=0.7, print_file_per_cluster=F)
@@ -1057,16 +932,7 @@ man_clusters_opt2_ordered = plot_expression_heatmap_for_precomputed_clusters (ma
 clusters = man_clusters_opt1
 manual_clusters_dir = manual_clusters_dir_opt1
 
-for (num in sort(unique(clusters))){  #for each cluster
-  #get a list of the genes in this cluster
-  Genes = get_genes_per_cluster(clusters, num)
-  
-  if (length(Genes)>1){
-    expression_matrix = mat2plot[Genes,]
-    out_file = paste0 (manual_clusters_dir, "/", "cluster_", num, "_expression.csv")
-    write.csv(expression_matrix, file=out_file)
-  }
-}
+get_average_expression_per_cluster (clusters, mat2plot, manual_clusters_dir)
 
 ```
 
@@ -1326,6 +1192,11 @@ for (GO_type in c('BP', 'MF', 'CC')) {
 
 #Initialize data structures to hold enrichment results, for further analyses and for delivery to RShiny
 
+#listenv is similar to list, but it allows to populate it (modify its content) within functions (see https://github.com/HenrikBengtsson/listenv)
+# enrichment_results      = listenv()
+# enrichment_table        = listenv()
+# GSEA_enrichment_results = listenv()
+
 enrichment_results      = list()
 enrichment_table        = list()
 GSEA_enrichment_results = list()
@@ -1516,7 +1387,7 @@ for (clust_method in names(gene_lists)) {
 }
 
 ```
-## OPTIONAL: GO plot   shared genes among pathways
+## OPTIONAL: GO plot shared genes among pathways
 
 ```{r GO shared genes}
 
@@ -1686,8 +1557,8 @@ for (ranking_method in names(ranked_genes)) {
         #get norm_log_counts counts
         mat2plot_p = filter_expression_matrix_by_gene_list (norm_log_counts, genes_in_pathway)
         #construct graph title
-        nr_genes = length(genes_in_pathway)
-        title = paste0("All genes in ", pathway_title, " (n=", nr_genes, ")")
+        nr_genes = nrow(mat2plot_p) #it may be a subset of genes_in_pathway, and will contain only the expressed genes within them
+        title = paste0("All expressed genes in ", pathway_title, " (n=", nr_genes, ")")
         #plot_heatmap
         file_name = file.path(Heatmaps_dir2, paste0(pathway_id1, ".png"))
         pheatmap_data_all_genes = plot_expression_heatmap(mat2plot_p, EFFECTS, stats_df, col_data, file_name, color_range="red2blue", plot_title=title)
@@ -1697,11 +1568,19 @@ for (ranking_method in names(ranked_genes)) {
         orig_genes = row.names(mat2plot_le)
         ordered_genes = orig_genes[pheatmap_data_core_genes$tree_row$order]  #order genes by hierarchical clustering order
         res_df2write_DE <- res_df2write[ordered_genes,] %>% select (-starts_with ("manual_cutoffs"))  #add expression and statistics data
-        # Add manual cluster
-        clustering_result = man_clusters_opt1_ordered                      #specify clustering object (named vector)
-        clustering_result = gene_lists[["manual_clustering"]][["FC1.2"]]   #or choose from gene_lists
-        man_clusters_df = make_data_frame_from_clusters(clustering_result) %>% setNames(c("gene", "manual_cluster"))
-        res_df2write_DE1 = left_join(x=res_df2write_DE, y=man_clusters_df, by="gene")
+        # # Add manual cluster
+        # clustering_result = man_clusters_opt1_ordered                      #specify clustering object (named vector)
+        # clustering_result = gene_lists[["manual_clustering"]][["FC1.2"]]   #or choose from gene_lists
+        # man_clusters_df = make_data_frame_from_clusters(clustering_result) %>% setNames(c("gene", "manual_cluster"))
+        # res_df2write_DE1 = left_join(x=res_df2write_DE, y=man_clusters_df, by="gene")
+        # Add manual cluster (or any clustering result of interest)
+        clustering_result = gene_lists[["manual_clustering"]][["FC1.2"]]   #specify requested clustering result
+        if (length(clustering_result) > 0) {
+          man_clusters_df = make_data_frame_from_clusters(clustering_result) %>% setNames(c("gene", "manual_cluster"))
+          res_df2write_DE1 = left_join(x=res_df2write_DE, y=man_clusters_df, by="gene")
+        } else {
+          res_df2write_DE1 = res_df2write_DE
+        }
         # Add Z-score data
         zscore <- z_score(norm_log_counts)
         colnames(zscore) <- zscore %>% colnames %>% paste0(.,".zscore")
