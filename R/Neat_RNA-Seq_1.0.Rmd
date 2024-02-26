@@ -53,9 +53,9 @@ library(enrichplot)
 
 library(DOSE)
 
-source ("Global_parameters_adipose_final_for_Git.R")
-source ("Functions_for_Neat_RNA-Seq_1.0_final_for_Git.R")
-source ("Functions_for_clustering_and_enrichment_1.0_final_for_Git.R")
+source ("Global_parameters.R")
+source ("Functions_for_Neat_RNA-Seq_1.0.R")
+source ("Functions_for_clustering_and_enrichment_1.0.R")
 
 ```
 # Preparations
