@@ -1372,6 +1372,31 @@ plot_cluster_profiles<-function(clusters,mat2plot,col_data, color_group=c('Type'
   
   ggsave(out_file,Clustering_Plot,dpi = 600, width = 6.99, height =3.99, units = "in")
   
+  #export data behind plot
+  
+  out_file2 = str_replace(out_file, ".pdf", "_data.txt")
+  
+  for (i in sort(unique(clusters))){
+    out_file3 = str_replace(out_file, ".pdf", paste0("_cluster", i, "_data.txt"))
+    Df1 = plot_list[[i]]$data %>% select(Group = Time, Exp = EXP)
+    export_table(Df1, out_file3)  #optional
+    se_by_group    = Df1 %>% group_by(Group) %>% summarise(Mean = mean(Exp), SE = sd(Exp)/sqrt(length(Exp)), Mean_SE = mean_se(Exp))%>% as.data.frame
+    se_by_group = cbind (Cluster = i, se_by_group)
+    if (i==1) {
+      summary_df = se_by_group
+    } else {
+      summary_df = rbind(summary_df, se_by_group)
+    }
+  }
+  
+  write.table(x = summary_df,
+              file = out_file2,
+              quote = F,
+              sep = "\t",
+              na = "",
+              row.names = F,
+              col.names = T)
+  
   #return(list(Clustering_Plot))
   return(Clustering_Plot)
 }
