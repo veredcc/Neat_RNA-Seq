@@ -8,9 +8,9 @@
 
 set.seed(111)
 
-project_name   = "HFD_Ad"
+project_name   = "Development"
 
-analysis_round = "Analysis_01"        
+analysis_round = "01"
 
 ##### Gene annotation #####
 
@@ -18,7 +18,7 @@ USE_EXTERNAL_ANNOTATION  = T
 USE_TRINOTATE_ANNOTATION = F
 
 # modify gene ID
-CHOP_GENE_ID_BY_DELIMITER = TRUE #FALSE: to leave gene ID as is, e.g. in trinity results.
+CHOP_GENE_ID_BY_DELIMITER = FALSE #FALSE: to leave gene ID as is, e.g. in trinity results.
 #TRUE: to remove the part after the delimiter, e.g. when gene IDs have the form e.g. ENSMUSG00000027351_Spred1
 GENE_ID_DELIMITER = "_"   
 
@@ -26,7 +26,7 @@ GENE_ID_DELIMITER = "_"
 #required to modify annotation column headers and edit their content
 #first column must be the key for joining to the RSEM counts data frame (e.g. to contain Ensembl ID in the same format as in RSEM results)
 #currently only implemented for ensembl annotation downloaded from Ensembl/biomart which includes Gene stable ID, Gene name, Gene type, Gene description
-ANNOT_SOURCE = "Ensembl" #options: Ensembl, Trinotate (currently Trinotate does not have any effect)
+ANNOT_SOURCE = "NCBI_GTF" #options: Ensembl, NCBI_GTF Trinotate (currently Trinotate does not have any effect)
 
 ##### Statistical analysis for differential expression #####
 
@@ -37,7 +37,7 @@ CALC_INTERACTION = FALSE   #whether or not to calculate interaction (TURE, FALSE
 
 #set DESIGN for contrasts
 
-DESIGN = "~ Batch + Diet"  #examples: "~ Stage", "~ Batch + Treatment"
+DESIGN = "~ Stage"  #examples: "~ Stage", "~ Batch + Treatment"
 
 #set DESIGN for interaction
 
@@ -48,11 +48,11 @@ LRT                = ""    #example: "~ Age + Diet"
 #simple model is when the control of all treatment groups is in the first treatment group
 #for more complex designs, use expanded model
 
-use_expanded_model = F  #TRUE or FALSE
+use_expanded_model = T  #TRUE or FALSE
 
 #set cutoffs for DE contrasts
 
-LINEAR_FC_CUTOFF  = 1     #e.g. 1.3
+LINEAR_FC_CUTOFF  = 1.5   #e.g. 1.3
 PADJ_CUTOFF       = 0.05  #e.g. 0.05
 #PVAL_CUTOFF = 0.01       #pay attention, if you use this variable, you have to change the code in the "compute_contrasts" function in the functions file !!!
 DESEQ_PADJ_CUTOFF = 0.05  #e.g. 0.05
@@ -68,14 +68,14 @@ DESEQ_PADJ_CUTOFF_INTERACTION = 1   #e.g. 0.1  Will be neglected if CALC_INTERAC
 #set factors for PCA, heatmap, and excel top rows
 #specify col names from col_data, starting from the factor with the biggest effect
 
-EFFECTS = c("Batch", "Diet")
+EFFECTS = c("Stage", "Stage")
 
 #normalization method (for visualization)
 NORM_METHOD = 'VSD'  #'VSD' or 'RLOG'
 
 #batch correction
 
-REMOVE_BATCH_EFFECT = T     #TRUE or FALSE
+REMOVE_BATCH_EFFECT = F     #TRUE or FALSE
 BATCH_EFFECTS = c('Batch')  #indicate colunm name(s) from the Experiment_design file. sva can use only one. limma can use up to two.
 BATCH_CORR_METHOD = 'sva'   #sva or limma
 
@@ -84,15 +84,17 @@ BATCH_CORR_METHOD = 'sva'   #sva or limma
 #set group factor for the binary pattern calculations and for partition clustering
 #(this is usually the factor that was used for the contrasts)
 
-GROUP = "Diet"
+GROUP = "Stage"
 
 #set correlation cutoff for binary pattern calculation
 
 CORR_CUTOFF = 0.8
 
 #set min counts cutoff for 1s in the binary pattern calculation
+#and max counts cutoff for 0s in the binary patter calculation
 
-COUNTS_CUTOFF = 500 
+COUNTS_CUTOFF_HIGH = 500
+COUNTS_CUTOFF_LOW = 100
 
 #show only top n DE genes in hierarchical clustering?
 
@@ -101,13 +103,13 @@ NR_TOP_GENES = 5000  #if SHOW_TOP_GENES_IN_HEATMAP is set to FALSE, this paramet
 
 #partition clustering
 
-K_FIXED = 12 #no. of requested clusters. if NA, K_MAX will be used
+K_FIXED = NA #no. of requested clusters. if NA, K_MAX will be used
 K_MAX = 20
 
-GROUP1 = "Diet"   #usually GROUP will be the main treatment (e.g. diet), and GROUP1 will be another biological factor, e.g. age
+GROUP1 = "Stage"   #usually GROUP will be the main treatment (e.g. diet), and GROUP1 will be another biological factor, e.g. age
 
 #manual clustering
-PERFORM_MANUAL_CLUSTERING = T  #TRUE or FALSE
+PERFORM_MANUAL_CLUSTERING = F  #TRUE or FALSE
 COLUMNS_FOR_MAN_CLUSTERING = c(1:3)  #currently manual clustering can only work on three biological groups. specify column indexes on mat2plot
 #for manual clustering option 1
 MAN_CLUST_FC_CUTOFF = 1.2 #orig was 1.5
@@ -144,7 +146,7 @@ contrasts_file           = "Contrasts.txt"
 #e.g. download from Ensembl/BioMart: Gene stable ID, Gene name, Gene type, Gene description (by default the file is called "mart_export.txt")
 #or, use the data retrieved from AnnotationHub using the Retrieve_annotation.Rmd script ("Func_annot_data/Annotation.tab"), but this has not been tested yet
 #the annotation data will appear as first cols in the Excel results file
-annotation_file          = "mart_export.txt"  #or 
+annotation_file          = "gene_annotation.txt" # e.g. mart_export.txt or 
 
 #file prepared by trinotate (for non-model organisms)
 trinotate_file           = "Assembly.trino_anno_rep.xls"

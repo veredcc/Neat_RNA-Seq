@@ -438,7 +438,7 @@ norm_counts = norm_counts[, samples]           #for excel output
 #get norm_log_counts counts
 mat2plot = filter_expression_matrix_by_gene_list (norm_log_counts, top_DE_genes)
 
-#construct graph title
+head#construct graph title
 nr_genes = length(top_DE_genes)
 if (SHOW_TOP_GENES_IN_HEATMAP) {
   title = paste0("Hierarchical clustering of top DE genes (n=", nr_genes, ")")
@@ -588,12 +588,15 @@ norm_counts_DE = filter_expression_matrix_by_gene_list (norm_counts, DE_genes)
 
 #for each pattern, calc. whether the samples in the 1s all have no. counts above a cutoff
 #the cutoff is applied on the norm counts (not norm_log_counts)
-count_cutoff_per_pattern_matrix = calc_pattern_1s_pass_min_counts (norm_counts_DE, patterns, replicates_structure, COUNTS_CUTOFF)
+count_cutoff_per_pattern_matrix = calc_pattern_1s_pass_min_counts (norm_counts_DE, patterns, replicates_structure, COUNTS_CUTOFF_HIGH)
+
+#same, but add a condition that all zeros in the pattern must have no. counts below a cutoff
+count_cutoff_per_pattern_matrix1 = calc_pattern_1s_and_0s_pass_counts_cutoffs (norm_counts_DE, patterns, replicates_structure, COUNTS_CUTOFF_HIGH, COUNTS_CUTOFF_LOW)
 
 #calc correlation of each gene to each pattern, and store in a matrix
 #if the list of patterns is too large, consider taking only a subset of it (e.g., pass to the function patterns[1:10]).
 corrs  = calc_correlations_to_expression_patterns (norm_log_counts_DE, patterns, replicates_structure)
-binary_pattern_results = calc_best_pattern_per_gene (corrs, CORR_CUTOFF, corr_to_patterns_file, corr_to_patterns_stats_file, count_cutoff_per_pattern_matrix)
+binary_pattern_results = calc_best_pattern_per_gene (corrs, CORR_CUTOFF, corr_to_patterns_file, corr_to_patterns_stats_file, count_cutoff_per_pattern_matrix, count_cutoff_per_pattern_matrix1)
 corrs2 = binary_pattern_results$corrs2
 binary_patterns_stats = binary_pattern_results$binary_patterns_stats
 
@@ -676,6 +679,7 @@ New_clusters = perform_partition_clustering (mat2plot, col_data, clustering_dir)
 #print clustering summary
 
 table(New_clusters)  
+
 
 #specify output files. directory name will include no. of clusters
 nr_clusters = length(unique(New_clusters))
@@ -982,58 +986,49 @@ res_df = data.frame(gene=rownames(norm_counts))
 #use the first column of the annotation data frame as key
 
 if (exists("annot")) {
-     res_df3 <- merge(x   = res_df,
-                    y     = annot,
-                    by.x  = "gene",
-                    by.y  = 1,
-                    all.x = TRUE)
-    dim(res_df)
-    dim(res_df3)
-    if (identical(dim(res_df)[1],dim(res_df3)[1])) {
-        res_df<-res_df3
-        rm(res_df3)
-        gc()
-    } else {
-        cat("Error!!!")
-    }
+  res_df3 <- res_df %>%
+    left_join(annot, by = c("gene" = colnames(annot)[1]))  # Use the first column of annot as the key
+  
+  if (identical(res_df$gene, res_df3$gene)) {
+    res_df<-res_df3
+    rm(res_df3)
+    gc()
+  } else {
+    stop("Number and order of rows in res_df changed during the join with annot data!")
+  }
 }
 
 nr_first_cols = dim(res_df)[2]
 
 #add norm counts
 
-res_df = cbind(res_df, norm_counts)
+res_df <- res_df %>%
+    bind_cols(as.data.frame(norm_counts))
 
 #add stats results
 
 if (CALC_CONTRASTS & CALC_INTERACTION) {
-  res_df = cbind(res_df, select(stats_df_combined, -gene))
+    res_df <- res_df %>%
+        left_join(stats_df_combined, by = "gene")
 } else if (CALC_CONTRASTS) {
-  res_df = cbind(res_df, select(stats_df, -gene))
+    res_df <- res_df %>%
+        left_join(stats_df, by = "gene")
 } else if (CALC_INTERACTION) {
-  res_df = cbind(res_df, select(stats_df_interaction, -gene))
+    res_df <- res_df %>%
+        left_join(stats_df_interaction, by = "gene")
 }
 
-#add trinotate
+#add trinotate (if exists)
+
 if (exists("trinotate_main")) {
-    res_df2 <- merge(x     = res_df,
-                    y     = trinotate_main,
-                    by.x  = "gene",
-                    by.y  = "X.gene_id",
-                    all.x = TRUE)
-    dim(res_df)
-    dim(res_df2)
-    if (identical(dim(res_df)[1],dim(res_df2)[1])) {
-        res_df<-res_df2
-        rm(res_df2)
-        gc()
-    } else {
-        cat("Error!!!")
-    }
+    res_df <- res_df %>%
+        left_join(trinotate_main, by = c("gene" = "X.gene_id"))
 }
 
-#check
-(res_df$gene %>% length) == (unique(res_df$gene) %>% length)
+# Check for duplicate gene entries
+if ((res_df$gene %>% length()) != (res_df$gene %>% unique() %>% length())) {
+    warning("Duplicate gene entries found in res_df!")
+}
 
 #backup res df
 res_df1=list(res_df=res_df)
@@ -1751,7 +1746,7 @@ stats_df_orig = stats_df
 stats_df = select(stats_df, -starts_with("manual_cutoffs"))
 
 #arrange cutoffs and parameters in one list
-cutoffs = list(LINEAR_FC_CUTOFF=LINEAR_FC_CUTOFF, PADJ_CUTOFF=PADJ_CUTOFF, CORR_CUTOFF=CORR_CUTOFF, COUNTS_CUTOFF=COUNTS_CUTOFF, ENRICHMENT_PVAL_CUTOFF=ENRICHMENT_PVAL_CUTOFF, ENRICHMENT_PADJ_METHOD=ENRICHMENT_PADJ_METHOD, EFFECT1=EFFECTS[1], EFFECT2=EFFECTS[2], GROUP=GROUP, GROUP1=GROUP1)
+cutoffs = list(LINEAR_FC_CUTOFF=LINEAR_FC_CUTOFF, PADJ_CUTOFF=PADJ_CUTOFF, CORR_CUTOFF=CORR_CUTOFF, COUNTS_CUTOFF_HIGH=COUNTS_CUTOFF_HIGH, COUNTS_CUTOFF_LOW=COUNTS_CUTOFF_LOW, ENRICHMENT_PVAL_CUTOFF=ENRICHMENT_PVAL_CUTOFF, ENRICHMENT_PADJ_METHOD=ENRICHMENT_PADJ_METHOD, EFFECT1=EFFECTS[1], EFFECT2=EFFECTS[2], GROUP=GROUP, GROUP1=GROUP1)
 
 #store
 if (exists("trinotate_main")) {

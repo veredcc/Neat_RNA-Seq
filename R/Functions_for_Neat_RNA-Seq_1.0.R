@@ -105,6 +105,10 @@ process_annotation_data = function (annotation_file, ANNOT_SOURCE="") {
                                       replacement = ""))   
    
   }
+  
+  if (ANNOT_SOURCE == "NCBI_GTF") {
+    #right now do nothing
+  }
   return (annot)
   
 }
