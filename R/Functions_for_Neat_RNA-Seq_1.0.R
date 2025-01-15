@@ -106,7 +106,7 @@ process_annotation_data = function (annotation_file, ANNOT_SOURCE="") {
    
   }
   
-  if (ANNOT_SOURCE == "NCBI_GTF") {
+  if (ANNOT_SOURCE == "NCBI_GTF" | ANNOT_SOURCE == "Generic") {
     #right now do nothing
   }
   return (annot)

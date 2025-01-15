@@ -8,9 +8,9 @@
 
 set.seed(111)
 
-project_name   = "Development"
+project_name   = "Growth_medium"
 
-analysis_round = "01"
+analysis_round = "03_wo_samples_02_07_09"
 
 ##### Gene annotation #####
 
@@ -26,7 +26,7 @@ GENE_ID_DELIMITER = "_"
 #required to modify annotation column headers and edit their content
 #first column must be the key for joining to the RSEM counts data frame (e.g. to contain Ensembl ID in the same format as in RSEM results)
 #currently only implemented for ensembl annotation downloaded from Ensembl/biomart which includes Gene stable ID, Gene name, Gene type, Gene description
-ANNOT_SOURCE = "NCBI_GTF" #options: Ensembl, NCBI_GTF Trinotate (currently Trinotate does not have any effect)
+ANNOT_SOURCE = "Generic" #options: Ensembl, NCBI_GTF, Generic, Trinotate (currently Trinotate does not have any effect)
 
 ##### Statistical analysis for differential expression #####
 
@@ -37,7 +37,7 @@ CALC_INTERACTION = FALSE   #whether or not to calculate interaction (TURE, FALSE
 
 #set DESIGN for contrasts
 
-DESIGN = "~ Stage"  #examples: "~ Stage", "~ Batch + Treatment"
+DESIGN = "~ Group"  #examples: "~ Stage", "~ Batch + Treatment"
 
 #set DESIGN for interaction
 
@@ -68,7 +68,7 @@ DESEQ_PADJ_CUTOFF_INTERACTION = 1   #e.g. 0.1  Will be neglected if CALC_INTERAC
 #set factors for PCA, heatmap, and excel top rows
 #specify col names from col_data, starting from the factor with the biggest effect
 
-EFFECTS = c("Stage", "Stage")
+EFFECTS = c("Group", "Group")
 
 #normalization method (for visualization)
 NORM_METHOD = 'VSD'  #'VSD' or 'RLOG'
@@ -84,7 +84,7 @@ BATCH_CORR_METHOD = 'sva'   #sva or limma
 #set group factor for the binary pattern calculations and for partition clustering
 #(this is usually the factor that was used for the contrasts)
 
-GROUP = "Stage"
+GROUP = "Group"
 
 #set correlation cutoff for binary pattern calculation
 
@@ -106,7 +106,7 @@ NR_TOP_GENES = 5000  #if SHOW_TOP_GENES_IN_HEATMAP is set to FALSE, this paramet
 K_FIXED = NA #no. of requested clusters. if NA, K_MAX will be used
 K_MAX = 20
 
-GROUP1 = "Stage"   #usually GROUP will be the main treatment (e.g. diet), and GROUP1 will be another biological factor, e.g. age
+GROUP1 = "Group"   #usually GROUP will be the main treatment (e.g. diet), and GROUP1 will be another biological factor, e.g. age
 
 #manual clustering
 PERFORM_MANUAL_CLUSTERING = F  #TRUE or FALSE
@@ -134,9 +134,9 @@ results_all_with_DE = FALSE   #print results in one file with separate tabs for 
 
 #the three following should be prepared by the user, and are analysis-specific
 
-rsem_files_locations     = "Count_file_location.txt"
+rsem_files_locations     = "Count_file_location_wo_samples_02_07_09.txt"
 
-experiment_design_file   = "Experiment_design.txt"
+experiment_design_file   = "Experiment_design_wo_samples_02_07_09.txt"
 
 contrasts_file           = "Contrasts.txt"
 
@@ -146,7 +146,7 @@ contrasts_file           = "Contrasts.txt"
 #e.g. download from Ensembl/BioMart: Gene stable ID, Gene name, Gene type, Gene description (by default the file is called "mart_export.txt")
 #or, use the data retrieved from AnnotationHub using the Retrieve_annotation.Rmd script ("Func_annot_data/Annotation.tab"), but this has not been tested yet
 #the annotation data will appear as first cols in the Excel results file
-annotation_file          = "gene_annotation.txt" # e.g. mart_export.txt or 
+annotation_file          = "Annotation/gene_annotation_Edited.txt" # e.g. mart_export.txt or 
 
 #file prepared by trinotate (for non-model organisms)
 trinotate_file           = "Assembly.trino_anno_rep.xls"
@@ -156,5 +156,7 @@ trinotate_file           = "Assembly.trino_anno_rep.xls"
 #GO data and the Annotation.tab file are from the R script.
 #The perl script is located on Vered’s PC, at
 #Programming/Perl_workspace/Assaf_Rudich_03_HFD_KEGG_from_Vered_script/KEGG_2_ensembl_conversion8.pl
-functional_annot_dir     = "Func_annot_data"  
+
+functional_annot_dir     = "Func_annot_data_expanded"  #usually "Func_annot_data" or "Func_annot_data_expanded" (for expanded GO terms created with buildGOmap)
+
 
